@@ -80,8 +80,15 @@ export interface MergedPullRequest {
  * **Two outcomes, not the three the reads above have**, and the missing one is
  * `not-found`. An account with nothing merged is not a gap in what GitHub told
  * us — it is GitHub telling us, correctly, that there is nothing there. That is
- * an empty list and a `fail`, whereas a search that did not run is `unavailable`
+ * an empty list and a `fail`, whereas a read that could not run is `unavailable`
  * and must never become one (#19).
+ *
+ * **An unreadable scope is `unavailable`, not an empty list** (#1983). When a
+ * repository the token cannot read stands between the reader and a complete
+ * answer, an empty result would assert "no merged pull request exists" over
+ * ground that was never seen — the exact false negative this read exists not
+ * to produce. Only a fully read organisation with no merges is `found` and
+ * empty.
  */
 export type MergedPullRequestsResult =
   | { readonly outcome: 'found'; readonly pullRequests: readonly MergedPullRequest[] }
@@ -246,7 +253,7 @@ interface GitHubGistPayload {
  * than plumbing, and two readers now depend on it.
  */
 export type GitHubGetResult =
-  | { readonly outcome: 'ok'; readonly payload: unknown }
+  | { readonly outcome: 'ok'; readonly payload: unknown; readonly nextPage?: string }
   | { readonly outcome: 'not-found'; readonly reason: string }
   | { readonly outcome: 'unavailable'; readonly reason: string }
 
@@ -305,7 +312,13 @@ export function githubGet(
     }
 
     try {
-      return { outcome: 'ok', payload: await response.json() }
+      const payload = await response.json()
+      const links = response.headers?.get('link')
+      const nextPage = links
+        ?.split(',')
+        .map((link) => /^\s*<([^>]+)>;\s*rel="([^"]+)"\s*$/.exec(link))
+        .find((link) => link?.[2] === 'next')?.[1]
+      return { outcome: 'ok', payload, ...(nextPage === undefined ? {} : { nextPage }) }
     } catch {
       return { outcome: 'unavailable', reason: 'GitHub answered with something that is not JSON.' }
     }
@@ -365,78 +378,109 @@ export function httpGitHubReader(
 
   return {
     /**
-     * Merged pull requests by one author, through GitHub's search API.
+     * Merged pull requests by one author across all non-archived repositories in
+     * the Colony's organisation, including private repositories (#1983).
      *
-     * **`is:merged` rather than `is:closed`**, which is the whole distinction
-     * the rung rests on: a closed pull request is not a contribution, and GitHub
-     * treats merged as a kind of closed. Asking search to do it means the filter
-     * is applied where the data is rather than over a page of results we
-     * happened to receive.
+     * We enumerate non-archived repositories in the organisation, then inspect
+     * closed issues/PRs by this author per repository via the repository issue
+     * API. This reaches both public and private repositories without relying on
+     * the GitHub search API, whose private-repository view is silently omitted
+     * or restricted under personal access tokens.
      *
-     * One page of thirty is read and no more. The question is *did any merge
-     * happen*, so a citizen with a hundred needs no pagination to answer it —
-     * and the search API is the most aggressively rate-limited thing this reader
-     * touches, at thirty requests a minute for an authenticated caller.
+     * If any repository in the organisation cannot be read (403, 404, rate
+     * limits), we return `unavailable` naming the unreadable scope rather than
+     * claiming no merged PR exists.
      */
     mergedPullRequests: async (author) => {
       if (!hasToken()) return missingToken()
 
-      const query = encodeURIComponent(`is:pr is:merged author:${author} org:${KOLONIE_ORG}`)
-      const result = await get(
-        `${GITHUB_API}/search/issues?q=${query}&per_page=30`,
-        `merged pull requests by ${author}`,
-      )
+      const repos: string[] = []
+      let nextReposUrl: string | undefined =
+        `${GITHUB_API}/orgs/${KOLONIE_ORG}/repos?type=all&per_page=100`
 
-      // `not-found` cannot happen for a search — it answers 200 with no items —
-      // but if it ever did, it would be a fact about GitHub rather than about
-      // the author, and reading it as "nothing merged" would fail an honest
-      // citizen.
-      if (result.outcome !== 'ok') {
-        return {
-          outcome: 'unavailable',
-          reason: result.outcome === 'unavailable' ? result.reason : result.reason,
+      while (nextReposUrl !== undefined) {
+        const orgReposResult = await get(nextReposUrl, `repositories for ${KOLONIE_ORG}`)
+        if (orgReposResult.outcome !== 'ok') {
+          return {
+            outcome: 'unavailable',
+            reason: `Could not list organisation repositories for ${KOLONIE_ORG}: ${orgReposResult.reason}`,
+          }
         }
+
+        const orgReposPayload = orgReposResult.payload as unknown
+        if (!Array.isArray(orgReposPayload)) {
+          return {
+            outcome: 'unavailable',
+            reason: 'GitHub answered the organisation repository list with no array.',
+          }
+        }
+
+        for (const r of orgReposPayload) {
+          if (
+            typeof r === 'object' &&
+            r !== null &&
+            typeof (r as { name?: unknown }).name === 'string' &&
+            !(r as { archived?: unknown }).archived
+          ) {
+            repos.push((r as { name: string }).name)
+          }
+        }
+
+        nextReposUrl = orgReposResult.nextPage
       }
 
-      const payload = result.payload as { items?: unknown }
-      if (!Array.isArray(payload.items)) {
-        return { outcome: 'unavailable', reason: 'GitHub answered a search with no item list.' }
+      const pullRequests: MergedPullRequest[] = []
+
+      for (const repoName of repos) {
+        let nextIssuesUrl: string | undefined =
+          `${GITHUB_API}/repos/${KOLONIE_ORG}/${repoName}/issues?state=closed&creator=${encodeURIComponent(author)}&per_page=100`
+
+        while (nextIssuesUrl !== undefined) {
+          const issuesResult = await get(
+            nextIssuesUrl,
+            `closed contributions by ${author} in ${KOLONIE_ORG}/${repoName}`,
+          )
+
+          if (issuesResult.outcome !== 'ok') {
+            return {
+              outcome: 'unavailable',
+              reason: `Could not read closed contributions in ${KOLONIE_ORG}/${repoName}: ${issuesResult.reason}`,
+            }
+          }
+
+          const issuesPayload = issuesResult.payload as unknown
+          if (!Array.isArray(issuesPayload)) {
+            return {
+              outcome: 'unavailable',
+              reason: `GitHub answered issues for ${KOLONIE_ORG}/${repoName} with no array.`,
+            }
+          }
+
+          for (const item of issuesPayload) {
+            const entry = item as {
+              html_url?: unknown
+              number?: unknown
+              pull_request?: { url?: unknown; merged_at?: unknown } | null
+            }
+
+            if (
+              typeof entry.html_url === 'string' &&
+              typeof entry.number === 'number' &&
+              entry.pull_request &&
+              typeof entry.pull_request.merged_at === 'string'
+            ) {
+              pullRequests.push({
+                url: entry.html_url,
+                repository: `${KOLONIE_ORG}/${repoName}`,
+                number: entry.number,
+                mergedAt: entry.pull_request.merged_at,
+              })
+            }
+          }
+
+          nextIssuesUrl = issuesResult.nextPage
+        }
       }
-
-      const pullRequests = payload.items.flatMap((entry): readonly MergedPullRequest[] => {
-        const item = entry as {
-          html_url?: unknown
-          number?: unknown
-          repository_url?: unknown
-          pull_request?: { merged_at?: unknown }
-        }
-        const mergedAt = item.pull_request?.merged_at
-
-        /**
-         * Every field is required, and an item missing one is dropped rather
-         * than defaulted. `merged_at` above all: the search asked for merged
-         * pull requests, so an item without it is GitHub disagreeing with its
-         * own filter, and inventing a date would put a fact in an audit trail
-         * that nobody told us.
-         */
-        if (
-          typeof item.html_url !== 'string' ||
-          typeof item.number !== 'number' ||
-          typeof item.repository_url !== 'string' ||
-          typeof mergedAt !== 'string'
-        ) {
-          return []
-        }
-
-        return [
-          {
-            url: item.html_url,
-            repository: item.repository_url.replace(`${GITHUB_API}/repos/`, ''),
-            number: item.number,
-            mergedAt,
-          },
-        ]
-      })
 
       return { outcome: 'found', pullRequests }
     },

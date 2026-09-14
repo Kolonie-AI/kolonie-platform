@@ -281,28 +281,95 @@ describe('mergedPullRequests', () => {
     html_url: `https://github.com/Kolonie-AI/${repo}/pull/${number}`,
     number,
     repository_url: `https://api.github.com/repos/Kolonie-AI/${repo}`,
+    user: { login: 'octocat' },
     pull_request: mergedAt === null ? {} : { merged_at: mergedAt },
   })
 
   /**
-   * The filter that the whole rung rests on has to be applied by GitHub rather
-   * than over whatever page came back: a closed pull request is not a
-   * contribution, and merged is a kind of closed.
+   * A `fetch` that routes by URL, the way the enumeration read needs: one call
+   * lists the organisation's repositories, then one call per repository asks for
+   * that author's closed issues and pull requests together.
    */
-  it('asks GitHub for merged pull requests by the author, in the Colony’s org', async () => {
-    const { fetch, calls } = answering(200, { items: [] })
+  const routing = (
+    routes: { readonly match: RegExp; readonly status?: number; readonly body?: unknown }[],
+  ): { fetch: typeof fetch; calls: string[] } => {
+    const calls: string[] = []
+    return {
+      calls,
+      fetch: (async (url: string) => {
+        calls.push(String(url))
+        const route = routes.find((candidate) => candidate.match.test(String(url)))
+        if (route === undefined) {
+          return { ok: true, status: 200, json: async () => [] } as Response
+        }
+        const status = route.status ?? 200
+        return {
+          ok: status >= 200 && status < 300,
+          status,
+          json: async () => (route.body === undefined ? [] : route.body),
+        } as Response
+      }) as unknown as typeof fetch,
+    }
+  }
+
+  const repos = (names: string[]) => names.map((name) => ({ name, archived: false }))
+
+  /**
+   * The defect this whole read was rewritten for (#1983): GitHub's search API
+   * silently omits private repositories under the Colony's token, so a merged
+   * pull request in a private repository answered "no merged pull request
+   * exists". Enumeration reaches private repositories through the repository
+   * issue API instead.
+   */
+  it('finds a merged pull request in a private organisation repository', async () => {
+    const { fetch, calls } = routing([
+      { match: /\/orgs\/Kolonie-AI\/repos/, body: repos(['kolonie-concept-lab']) },
+      {
+        match: /\/repos\/Kolonie-AI\/kolonie-concept-lab\/issues/,
+        body: [item(9, '2026-08-27T20:36:07Z', 'kolonie-concept-lab')],
+      },
+    ])
+
+    const result = await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')
+
+    expect(result).toEqual({
+      outcome: 'found',
+      pullRequests: [
+        {
+          url: 'https://github.com/Kolonie-AI/kolonie-concept-lab/pull/9',
+          repository: 'Kolonie-AI/kolonie-concept-lab',
+          number: 9,
+          mergedAt: '2026-08-27T20:36:07Z',
+        },
+      ],
+    })
+    // The search API is gone from this read: its answers are public-only under
+    // the Colony's token, which is the whole defect.
+    expect(calls.some((url) => url.includes('/search/'))).toBe(false)
+  })
+
+  it('asks for closed issues by the author in the Colony’s org, merged is filtered locally', async () => {
+    const { fetch, calls } = routing([
+      { match: /\/orgs\/Kolonie-AI\/repos/, body: repos(['kolonie-platform']) },
+      { match: /\/repos\/Kolonie-AI\/kolonie-platform\/issues/, body: [] },
+    ])
 
     await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')
 
-    const asked = decodeURIComponent(calls[0] ?? '')
-    expect(asked).toContain('is:pr')
-    expect(asked).toContain('is:merged')
-    expect(asked).toContain('author:octocat')
-    expect(asked).toContain('org:Kolonie-AI')
+    const asked = decodeURIComponent(calls.find((url) => url.includes('/issues?')) ?? '')
+    expect(asked).toContain('creator=octocat')
+    expect(asked).toContain('state=closed')
+    expect(asked).toContain('Kolonie-AI/kolonie-platform')
   })
 
-  it('reduces search items to url, repository, number and merge time', async () => {
-    const { fetch } = answering(200, { items: [item(7, '2026-07-01T00:00:00Z')] })
+  it('reduces items to url, repository, number and merge time', async () => {
+    const { fetch } = routing([
+      { match: /\/orgs\/Kolonie-AI\/repos/, body: repos(['kolonie-platform']) },
+      {
+        match: /\/repos\/Kolonie-AI\/kolonie-platform\/issues/,
+        body: [item(7, '2026-07-01T00:00:00Z')],
+      },
+    ])
 
     const result = await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')
 
@@ -320,26 +387,61 @@ describe('mergedPullRequests', () => {
   })
 
   /**
-   * An item without `merged_at` is GitHub disagreeing with the filter it was
-   * given. Dropped rather than defaulted: inventing a merge date would put a
-   * fact in an audit trail that nobody told us.
+   * An item with a `pull_request` but no `merged_at` was closed, not merged. A
+   * closed pull request is not a contribution, and inventing a merge date would
+   * put a fact in an audit trail that nobody told us.
    */
-  it('drops an item with no merge time rather than inventing one', async () => {
-    const { fetch } = answering(200, {
-      items: [item(7, null), item(8, '2026-07-02T00:00:00Z')],
-    })
+  it('drops a closed-but-unmerged pull request rather than inventing a merge time', async () => {
+    const { fetch } = routing([
+      { match: /\/orgs\/Kolonie-AI\/repos/, body: repos(['kolonie-platform']) },
+      {
+        match: /\/repos\/Kolonie-AI\/kolonie-platform\/issues/,
+        body: [
+          item(7, null),
+          item(8, '2026-07-02T00:00:00Z'),
+          { number: 99, html_url: 'https://github.com/Kolonie-AI/kolonie-platform/issues/99' },
+        ],
+      },
+    ])
 
     const result = await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')
 
     expect(result).toMatchObject({ outcome: 'found', pullRequests: [{ number: 8 }] })
   })
 
+  it('skips archived repositories', async () => {
+    const { fetch, calls } = routing([
+      {
+        match: /\/orgs\/Kolonie-AI\/repos/,
+        body: [
+          { name: 'kolonie-old', archived: true },
+          { name: 'kolonie-platform', archived: false },
+        ],
+      },
+      { match: /\/repos\/Kolonie-AI\/kolonie-platform\/issues/, body: [] },
+    ])
+
+    const result = await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')
+
+    expect(result).toMatchObject({ outcome: 'found', pullRequests: [] })
+    expect(calls.some((url) => url.includes('kolonie-old'))).toBe(false)
+  })
+
   /**
    * Nothing merged is an answer, not a gap — so it is `found` with an empty list
    * and never `unavailable`, which would leave the submission retrying forever.
+   * This holds only once every repository answered; the two tests below pin the
+   * difference between a genuine empty and an unreadable scope.
    */
-  it('reads an empty result as an answer', async () => {
-    const { fetch } = answering(200, { items: [] })
+  it('reads a fully enumerated empty result as an answer', async () => {
+    const { fetch } = routing([
+      {
+        match: /\/orgs\/Kolonie-AI\/repos/,
+        body: repos(['kolonie-platform', 'kolonie-concept-lab']),
+      },
+      { match: /\/repos\/Kolonie-AI\/kolonie-platform\/issues/, body: [] },
+      { match: /\/repos\/Kolonie-AI\/kolonie-concept-lab\/issues/, body: [] },
+    ])
 
     expect(await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')).toEqual({
       outcome: 'found',
@@ -347,28 +449,59 @@ describe('mergedPullRequests', () => {
     })
   })
 
+  /**
+   * The other half of #1983: a repository the token cannot read must surface as
+   * "cannot see this scope", never as "no merged pull request exists". An empty
+   * answer over unreadable ground is the false negative this read was rewritten
+   * to stop producing.
+   */
+  it('reports an unreadable repository as unavailable, naming the repository', async () => {
+    const { fetch } = routing([
+      { match: /\/orgs\/Kolonie-AI\/repos/, body: repos(['kolonie-concept-lab']) },
+      { match: /\/repos\/Kolonie-AI\/kolonie-concept-lab\/issues/, status: 403 },
+    ])
+
+    const result = await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')
+
+    expect(result).toMatchObject({ outcome: 'unavailable' })
+    if (result.outcome === 'unavailable') {
+      expect(result.reason).toContain('kolonie-concept-lab')
+      expect(result.reason).not.toContain('no merged pull request')
+    }
+  })
+
+  it('reports an unreadable organisation repository listing as unavailable', async () => {
+    const { fetch } = routing([{ match: /\/orgs\/Kolonie-AI\/repos/, status: 403 }])
+
+    const result = await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')
+
+    expect(result).toMatchObject({ outcome: 'unavailable' })
+  })
+
   it.each([
     ['rate-limited', 403],
     ['throttled', 429],
     ['a bad day at GitHub', 503],
   ])('reads %s as unavailable, never as nothing merged', async (_case, status) => {
-    const { fetch } = answering(status)
+    const { fetch } = routing([{ match: /\/orgs\/Kolonie-AI\/repos/, status }])
 
     expect(await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')).toMatchObject({
       outcome: 'unavailable',
     })
   })
 
-  it('reads a reply with no item list as unavailable', async () => {
-    const { fetch } = answering(200, { message: 'something else entirely' })
+  it('reads a reply that is not an array as unavailable', async () => {
+    const { fetch } = routing([
+      { match: /\/orgs\/Kolonie-AI\/repos/, body: { message: 'something else entirely' } },
+    ])
 
     expect(await httpGitHubReader(TOKEN, fetch).mergedPullRequests('octocat')).toMatchObject({
       outcome: 'unavailable',
     })
   })
 
-  it('searches nothing at all without a token', async () => {
-    const { fetch, calls } = answering(200, { items: [] })
+  it('reads nothing at all without a token', async () => {
+    const { fetch, calls } = routing([{ match: /.*/, body: [] }])
 
     const result = await httpGitHubReader(undefined, fetch).mergedPullRequests('octocat')
 

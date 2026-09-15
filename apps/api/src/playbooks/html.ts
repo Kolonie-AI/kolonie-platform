@@ -10,6 +10,7 @@ import {
   type PlaybookSignalsTally,
   type PlaybookStep,
   type ServedPlaybookBriefingClaim,
+  type WorkplacePlaybookProvenanceSnapshot,
 } from '@kolonie-ai/core'
 import { escape } from '../console/escape.js'
 import { atlasPage } from '../atlas/html.js'
@@ -293,6 +294,20 @@ export interface PlaybookPageLife {
   readonly notes: readonly PlaybookPageNote[]
   /** The live revision and when it was cut; `cutAt` is null before any cut was recorded. */
   readonly revision: { readonly revision: number; readonly cutAt: string | null }
+  /**
+   * Aggregate Workplace provenance of a promoted playbook (`#1945`), or absent.
+   *
+   * **The promotion-time snapshot and nothing else.** A public reader is
+   * anonymous by construction here, so no card id, closure id, board id or card
+   * title may reach this page: a private board would otherwise be named by the
+   * page that cites it. The counts are what a stranger is owed — this pipeline
+   * was written from real attempts, and this many of them shipped.
+   *
+   * **It is a snapshot rather than a live count.** Recomputing it would let a
+   * decrement tell a stranger that a source on a board it cannot see had been
+   * erased, which is the leak the aggregate exists to avoid.
+   */
+  readonly provenance?: WorkplacePlaybookProvenanceSnapshot | undefined
 }
 
 /**
@@ -499,6 +514,32 @@ function revisionLine(revision: { readonly revision: number; readonly cutAt: str
     '<code>kolonie.playbooks.history</code>; a step change is proposed with ' +
     '<code>kolonie.playbooks.propose-step</code>, by any citizen and not only the ' +
     'author.</small></p>'
+  )
+}
+
+function provenanceSection(provenance: WorkplacePlaybookProvenanceSnapshot): string {
+  const counts = provenance.resultCounts
+  const outcomes = (
+    [
+      ['shipped', counts.shipped] as const,
+      ['failed_experiment', counts.failed_experiment] as const,
+      ['abandoned', counts.abandoned] as const,
+      ['superseded', counts.superseded] as const,
+    ] as const
+  ).filter(([, count]) => count > 0)
+  const outcomesPhrase =
+    outcomes.length === 0
+      ? ''
+      : ` — ${outcomes.map(([name, count]) => `${count} ${name}`).join(', ')}`
+
+  return (
+    '<section class="k-atlas-provenance" aria-label="Where this came from">\n' +
+    '<h2>Where this came from</h2>\n' +
+    `<p class="k-atlas-facts">Drafted from ${escape(String(provenance.sourceCount))} grounded ` +
+    `Workplace close record${provenance.sourceCount === 1 ? '' : 's'}${escape(outcomesPhrase)} ` +
+    'at promotion time. This is a snapshot of provenance then, not a claim that every ' +
+    'source is still readable.</p>\n' +
+    '</section>'
   )
 }
 
@@ -788,6 +829,7 @@ export function playbookEntryPage(input: {
        * it is absent rather than empty on a caller that wired no run log: a
        * heading over nothing would say the Colony had looked and found nothing.
        */
+      life === undefined || life.provenance === undefined ? '' : provenanceSection(life.provenance),
       life === undefined ? '' : excerptSection(life.claims),
       life === undefined ? '' : numbersSection(life.runs, life.signals),
       life === undefined ? '' : revisionLine(life.revision),

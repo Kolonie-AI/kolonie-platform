@@ -466,6 +466,7 @@ export function registerPlaybookTools(
         contributors,
         revision,
         claims,
+        provenance,
       } = result.response
       const signalLine = formatSignalTally(activity.signals)
       const activityLine =
@@ -524,6 +525,18 @@ export function registerPlaybookTools(
           ? 'No current briefing claims.'
           : `Current claims (${claims.length}):\n` +
             claims.map((claim) => `• ${claim.text}`).join('\n')
+      const provenanceLine =
+        provenance === null
+          ? ''
+          : `\n\nProvenance at promotion: ${provenance.provenanceAtPromotion.sourceCount} closures` +
+            ` (shipped ${provenance.provenanceAtPromotion.resultCounts.shipped},` +
+            ` failed_experiment ${provenance.provenanceAtPromotion.resultCounts.failed_experiment}).` +
+            (provenance.provenanceDegraded
+              ? ' Some underlying sources were retired or erased.'
+              : '') +
+            (provenance.workplaceSources && provenance.workplaceSources.length > 0
+              ? `\nVisible source closures: ${provenance.workplaceSources.map((s) => s.closureId).join(', ')}`
+              : '')
       const privateNoteLine =
         note === null
           ? ''
@@ -539,6 +552,7 @@ export function registerPlaybookTools(
           )
           .join('\n') +
         `\n\n${activityLine}\n${proposalLine}\n${contributorLine}\n${claimsLine}` +
+        provenanceLine +
         (reachLine === '' ? '' : `\n\n${reachLine}`) +
         privateNoteLine +
         playbookOwnRunAsText(own, result.response.ownJournal)

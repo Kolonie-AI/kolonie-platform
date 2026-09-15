@@ -450,6 +450,7 @@ describe('MCP grammar', () => {
       'handover',
       'archive',
       'recall',
+      'promote',
     ] as const) {
       expect(WorkplaceActSchema.parse(act)).toBe(act)
     }

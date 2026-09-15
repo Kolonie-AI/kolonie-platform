@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto'
 import {
   AccountCapabilitySchema,
   AccountKindSchema,
+  WorkplaceBoardIdSchema,
+  WorkplaceCardClosureIdSchema,
+  WorkplaceCardIdSchema,
   type Account,
   type PlaybookRequiredAccount,
 } from '@kolonie-ai/core'
@@ -113,6 +116,56 @@ describe('kolonie.playbooks.list/.get/.frontier (#1174)', () => {
     }
     expect(TOOL_DOCS['kolonie.playbooks.history']).toContain('reported separately')
     await close()
+  })
+
+  it('shows permission-filtered Workplace provenance on an authenticated read', async () => {
+    const { colony, client, close } = await aCitizen()
+    const playbook = colony.playbooks.playbook({
+      slug: 'grounded-procedure',
+      status: 'open',
+    })
+    const closureId = WorkplaceCardClosureIdSchema.parse(randomUUID())
+    const cardId = WorkplaceCardIdSchema.parse(randomUUID())
+    colony.playbooks.setProvenance(playbook.id, {
+      provenanceAtPromotion: {
+        sourceCount: 2,
+        resultCounts: { shipped: 1, failed_experiment: 1, abandoned: 0, superseded: 0 },
+      },
+      provenanceDegraded: true,
+      workplaceSources: [
+        {
+          closureId,
+          cardId,
+          boardId: WorkplaceBoardIdSchema.parse(randomUUID()),
+          result: 'shipped',
+          revision: 1,
+          createdAt: '2026-09-15T00:00:00.000Z',
+          read: {
+            tool: 'kolonie.workplace',
+            arguments: { act: 'get', subject: 'card', id: cardId },
+          },
+        },
+      ],
+    })
+
+    const read = await client.callTool(get('grounded-procedure'))
+    await close()
+
+    expect(read.isError).toBeFalsy()
+    expect(textOf(read)).toContain('Provenance at promotion: 2 closures')
+    expect(textOf(read)).toContain(closureId)
+    expect(read.structuredContent).toMatchObject({
+      provenance: {
+        provenanceAtPromotion: { sourceCount: 2 },
+        provenanceDegraded: true,
+        workplaceSources: [
+          {
+            closureId,
+            read: { tool: 'kolonie.workplace', arguments: { id: cardId } },
+          },
+        ],
+      },
+    })
   })
 
   it('holding nothing, reports every slot missing and nothing hidden', async () => {

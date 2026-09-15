@@ -26,6 +26,7 @@ import {
   WorkplaceCardKindSchema,
   WorkplaceLaneSchema,
   WorkplaceMoveCardRequestSchema,
+  WorkplacePlaybookPromotionRequestSchema,
   WorkplaceRenameBoardRequestSchema,
   WorkplaceRecallRequestSchema,
   WorkplaceSubjectSchema,
@@ -84,6 +85,7 @@ const ALLOWED: Readonly<Record<WorkplaceSubject, readonly WorkplaceAct[]>> = {
     'handover',
     'archive',
     'recall',
+    'promote',
   ],
   /**
    * Four acts, one row, and no new tool (`#1869`).
@@ -413,6 +415,7 @@ function capabilitiesFor(
   input: { readonly fields?: unknown },
 ): readonly AgentOperatorCapability[] {
   if (act === 'list' || act === 'get' || act === 'recall') return ['workplace-read']
+  if (act === 'promote') return ['workplace-write']
   if (act === 'handover' || act === 'claim') return ['workplace-write', 'handover']
   if (subject === 'board' && act === 'update' && asObject(asObject(input.fields)?.['members'])) {
     return ['workplace-write', 'handover']
@@ -988,6 +991,68 @@ async function dispatchCard(
           continuation,
         ),
         untrustedContent: WORKPLACE_RECALL_UNTRUSTED_CONTENT,
+      },
+    )
+  }
+
+  if (act === 'promote') {
+    const parsed = WorkplacePlaybookPromotionRequestSchema.safeParse(fieldsOf(input))
+    if (!parsed.success) {
+      return parsedFail('Promotion takes closureIds and the playbook draft fields.', parsed.error)
+    }
+    const { slug, ...draft } = parsed.data.playbook
+    const promoted = await cards.promoteToPlaybook({
+      callerId,
+      slug,
+      draft,
+      closureIds: parsed.data.closureIds,
+    })
+    if (promoted.outcome === 'slug-taken') {
+      return toolError({
+        code: 'conflict',
+        message: 'Another playbook already answers to that slug.',
+      })
+    }
+    if (promoted.outcome === 'forbidden-source') {
+      return toolError({
+        code: 'forbidden',
+        message: 'Every source closure must currently be visible to you.',
+      })
+    }
+    if (promoted.outcome === 'insufficient-sources') {
+      return toolError({
+        code: 'validation_failed',
+        message: 'Promotion requires at least two distinct closures from two distinct cards.',
+      })
+    }
+    if (promoted.outcome === 'stale-closure-revision') {
+      return toolError({
+        code: 'conflict',
+        message: 'Every source closure must be the latest revision of its card.',
+      })
+    }
+    if (promoted.outcome === 'legacy-closure') {
+      return toolError({
+        code: 'validation_failed',
+        message: 'Legacy completion records cannot be promoted into a playbook.',
+      })
+    }
+    if (promoted.outcome === 'no-grounded-outcome') {
+      return toolError({
+        code: 'validation_failed',
+        message: 'At least one source closure must be shipped or failed_experiment.',
+      })
+    }
+    return ok(
+      `Drafted ${promoted.playbook.slug} from ${promoted.provenance.sourceCount} closures.`,
+      {
+        playbook: promoted.playbook,
+        provenance: promoted.provenance,
+        next: [
+          { tool: 'kolonie.playbooks.get', arguments: { playbook: promoted.playbook.slug } },
+          { tool: 'kolonie.playbooks.update', arguments: { playbook: promoted.playbook.slug } },
+          { tool: 'kolonie.playbooks.submit', arguments: { playbook: promoted.playbook.slug } },
+        ],
       },
     )
   }

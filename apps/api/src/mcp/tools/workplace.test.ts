@@ -1334,4 +1334,158 @@ describe('kolonie.workplace (#1761)', () => {
       expect(errorOf(unknown).code).toBe('not_found')
     })
   })
+
+  describe('playbook promotion (#1945)', () => {
+    const validDraft = {
+      slug: 'repeatable-deploy',
+      title: 'Repeatable Deployment',
+      summary: 'A tested procedure derived from real Workplace executions.',
+      requiredAccounts: [],
+      steps: [{ title: 'Check health' }, { title: 'Deploy' }],
+      inspiration: [],
+    }
+
+    const closeCard = async (
+      client: Client,
+      card: WorkplaceCard,
+      result: 'shipped' | 'failed_experiment' | 'abandoned',
+      legacy = false,
+    ) => {
+      const evidenceLinkIds =
+        result === 'shipped' && !legacy
+          ? [
+              structuredOf<{ link: { id: string } }>(
+                await client.callTool(
+                  workplace({
+                    act: 'update',
+                    subject: 'card',
+                    id: card.id,
+                    fields: {
+                      links: { act: 'add', kind: 'url', ref: 'https://example.com/result' },
+                    },
+                  }),
+                ),
+              ).link.id,
+            ]
+          : []
+      const completed = await client.callTool(
+        workplace({
+          act: 'update',
+          subject: 'card',
+          id: card.id,
+          expectedVersion: card.version,
+          fields: legacy
+            ? { outcome: `Legacy close for ${card.title}` }
+            : {
+                close: {
+                  result,
+                  summary:
+                    result === 'failed_experiment'
+                      ? 'Tried the public endpoint and observed a 403 error.'
+                      : `Closed ${card.title}.`,
+                  learned: 'Documented lesson.',
+                  evidenceLinkIds,
+                  next: { kind: 'none' },
+                },
+              },
+        }),
+      )
+      expect(completed.isError).not.toBe(true)
+      return structuredOf<{ closure: { id: string } }>(completed).closure.id
+    }
+
+    it('promotes two grounded closures into a draft and names the ordinary next tools', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      const board1 = plantOwned(colony, agent.id, { title: 'Board 1' })
+      const board2 = plantOwned(colony, agent.id, { title: 'Board 2' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const card1 = aCard(board1.id, { status: 'in_progress', ownerId: agent.id, title: 'Task A' })
+      const card2 = aCard(board2.id, { status: 'in_progress', ownerId: agent.id, title: 'Task B' })
+      colony.cards.plantCard(card1)
+      colony.cards.plantCard(card2)
+      const c1 = await closeCard(client, card1, 'shipped')
+      const c2 = await closeCard(client, card2, 'failed_experiment')
+
+      const promoted = await client.callTool(
+        workplace({
+          act: 'promote',
+          subject: 'card',
+          fields: { closureIds: [c1, c2], playbook: validDraft },
+        }),
+      )
+      await close()
+
+      expect(promoted.isError).not.toBe(true)
+      const body = structuredOf<{
+        playbook: { slug: string; status: string }
+        provenance: { sourceCount: number }
+        next: { tool: string; arguments: { playbook: string } }[]
+      }>(promoted)
+      expect(body.playbook.slug).toBe('repeatable-deploy')
+      expect(body.playbook.status).toBe('draft')
+      expect(body.provenance.sourceCount).toBe(2)
+      expect(body.next.map((one) => one.tool)).toEqual([
+        'kolonie.playbooks.get',
+        'kolonie.playbooks.update',
+        'kolonie.playbooks.submit',
+      ])
+    })
+
+    it('refuses a single source, a hidden source and a legacy completion', async () => {
+      const { colony, agent, apiKey } = await registeredCitizen()
+      const { colony: other, agent: stranger, apiKey: strangerKey } = await registeredCitizen()
+      const board = plantOwned(colony, agent.id)
+      const hidden = plantOwned(other, stranger.id, { title: 'Hidden' })
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const { client: strangerClient, close: closeStranger } = await connectedClient(
+        other,
+        `Bearer ${strangerKey}`,
+      )
+      const own = aCard(board.id, { status: 'in_progress', ownerId: agent.id, title: 'Own' })
+      const otherCard = aCard(hidden.id, {
+        status: 'in_progress',
+        ownerId: stranger.id,
+        title: 'Hidden',
+      })
+      const legacyCard = aCard(board.id, {
+        status: 'in_progress',
+        ownerId: agent.id,
+        title: 'Legacy',
+      })
+      colony.cards.plantCard(own)
+      colony.cards.plantCard(legacyCard)
+      other.cards.plantCard(otherCard)
+      const ownId = await closeCard(client, own, 'shipped')
+      const hiddenId = await closeCard(strangerClient, otherCard, 'shipped')
+      const legacyId = await closeCard(client, legacyCard, 'shipped', true)
+
+      const single = await client.callTool(
+        workplace({
+          act: 'promote',
+          subject: 'card',
+          fields: { closureIds: [ownId], playbook: validDraft },
+        }),
+      )
+      const forbidden = await client.callTool(
+        workplace({
+          act: 'promote',
+          subject: 'card',
+          fields: { closureIds: [ownId, hiddenId], playbook: validDraft },
+        }),
+      )
+      const legacy = await client.callTool(
+        workplace({
+          act: 'promote',
+          subject: 'card',
+          fields: { closureIds: [ownId, legacyId], playbook: validDraft },
+        }),
+      )
+      await close()
+      await closeStranger()
+
+      expect(errorOf(single).code).toBe('validation_failed')
+      expect(errorOf(forbidden).code).toBe('forbidden')
+      expect(errorOf(legacy).code).toBe('validation_failed')
+    })
+  })
 })

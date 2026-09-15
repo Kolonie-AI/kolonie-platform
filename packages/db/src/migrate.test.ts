@@ -911,8 +911,10 @@ describe('the migrations', () => {
     // that erasure requires admitted as the sole closure update. `#1941` makes
     // thirteen: every parent link is rechecked at commit against a live
     // Initiative on the same board. `#1942` makes fourteen: deleting a focused
-    // card records the loss before the foreign key clears the id.
-    expect(afterFirst.triggers).toBe('14')
+    // card records the loss before the foreign key clears the id. `#1945` makes
+    // fifteen: deleting a promoted source edge marks the playbook provenance
+    // degraded without moving its promotion-time snapshot.
+    expect(afterFirst.triggers).toBe('15')
 
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)

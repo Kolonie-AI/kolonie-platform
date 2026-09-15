@@ -1,5 +1,6 @@
 import type {
   AgentId,
+  PlaybookDraft,
   WorkplaceCommitment,
   WorkplaceCompleteCardRequest,
   WorkplaceCreateCardClosureRequest,
@@ -88,6 +89,8 @@ import {
   type SetCommitmentResult,
   type UpdateChecklistItemResult,
   type UpdateChecklistResult,
+  type WorkplacePlaybookPromotionOutcome,
+  draftPlaybookWithWorkplaceSources,
 } from '@kolonie-ai/db'
 
 /**
@@ -209,6 +212,19 @@ export interface WorkplaceCards {
     readonly close: WorkplaceCreateCardClosureRequest
     readonly attribution?: WorkplaceWriteAttribution
   }): Promise<CreateCardClosureResult>
+  /**
+   * Promote grounded closures into an ordinary playbook draft (`#1945`).
+   *
+   * Validation and both writes share one transaction in storage, so a refused
+   * ACL or a taken slug leaves no playbook and no provenance edge behind. It
+   * creates a draft and never submits or publishes one.
+   */
+  promoteToPlaybook(input: {
+    readonly callerId: AgentId
+    readonly slug: string
+    readonly draft: PlaybookDraft
+    readonly closureIds: readonly string[]
+  }): Promise<WorkplacePlaybookPromotionOutcome>
   handover(input: {
     readonly callerId: AgentId
     readonly cardId: string
@@ -351,6 +367,13 @@ export function databaseWorkplaceCards(db: Database): WorkplaceCards {
     requestReview: (input) => requestReview(db, input),
     complete: (input) => completeCard(db, input),
     createClosure: (input) => createCardClosure(db, input),
+    promoteToPlaybook: (input) =>
+      draftPlaybookWithWorkplaceSources(db, {
+        authorAgentId: input.callerId,
+        slug: input.slug,
+        draft: input.draft,
+        closureIds: input.closureIds,
+      }),
     handover: (input) => handoverCard(db, input),
     archive: (input) => archiveCard(db, input),
     attachLabel: (input) => attachLabel(db, input),

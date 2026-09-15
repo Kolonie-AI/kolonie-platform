@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-13",
+  "measuredAt": "2026-09-15",
   "command": "npm run catalogue-structure",
   "tools": [
     {
@@ -4084,7 +4084,8 @@
               "set",
               "advance",
               "end",
-              "recall"
+              "recall",
+              "promote"
             ],
             "type": "string"
           },

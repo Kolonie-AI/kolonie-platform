@@ -151,6 +151,9 @@ export function registerPlaybookPages(app: FastifyInstance, deps: RouteDependenc
   const lifeOf = async (playbook: Playbook): Promise<PlaybookPageLife | undefined> => {
     if (life === undefined) return undefined
 
+    const provenance = await (life.workplaceProvenance?.(playbook.id, null) ??
+      Promise.resolve(null))
+
     const [briefing, activity, signals, contributors, notes, history] = await Promise.all([
       life.briefing.split(playbook.id),
       life.runs.activity(playbook.id),
@@ -173,6 +176,7 @@ export function registerPlaybookPages(app: FastifyInstance, deps: RouteDependenc
       })),
       notes: notes === 'invalid-cursor' ? [] : notes.notes,
       revision: { revision: playbook.version, cutAt: cut?.cutAt ?? null },
+      ...(provenance === null ? {} : { provenance: provenance.provenanceAtPromotion }),
     }
   }
 

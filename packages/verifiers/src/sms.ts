@@ -369,7 +369,10 @@ export function twilioAdapter(
           body: new URLSearchParams({ To: to, From: fromNumber, Body: body }).toString(),
         })
       } catch (error) {
-        return { outcome: 'unavailable', reason: `Twilio could not be reached: ${describe(error)}` }
+        return {
+          outcome: 'unavailable',
+          reason: `Twilio could not be reached: ${describeTransportFailure(error)}`,
+        }
       }
 
       const payload = await readJson(response)
@@ -437,7 +440,10 @@ export function twilioAdapter(
           headers: { authorization, accept: 'application/json' },
         })
       } catch (error) {
-        return { outcome: 'unavailable', reason: `Twilio could not be reached: ${describe(error)}` }
+        return {
+          outcome: 'unavailable',
+          reason: `Twilio could not be reached: ${describeTransportFailure(error)}`,
+        }
       }
 
       if (!response.ok) {
@@ -749,8 +755,47 @@ function isNonEmpty(value: string | undefined): value is string {
   return typeof value === 'string' && value.trim() !== ''
 }
 
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+const TRANSPORT_CODES: ReadonlySet<string> = new Set([
+  'EADDRNOTAVAIL',
+  'EAI_AGAIN',
+  'ECONNABORTED',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTDOWN',
+  'EHOSTUNREACH',
+  'ENETDOWN',
+  'ENETRESET',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'EPIPE',
+  'ETIMEDOUT',
+  'UND_ERR_ABORTED',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_CLOSED',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_DESTROYED',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_SOCKET',
+])
+
+function describeTransportFailure(error: unknown): string {
+  const summary =
+    error instanceof TypeError && error.message === 'fetch failed'
+      ? 'fetch failed'
+      : 'request failed'
+  let current: unknown = error
+  for (let depth = 0; depth < 5 && current !== null && current !== undefined; depth += 1) {
+    if (
+      typeof current === 'object' &&
+      'code' in current &&
+      typeof current.code === 'string' &&
+      TRANSPORT_CODES.has(current.code)
+    ) {
+      return `${summary} (cause: ${current.code})`
+    }
+    current = typeof current === 'object' && 'cause' in current ? current.cause : null
+  }
+  return `${summary} (cause code unavailable)`
 }
 
 /** Twilio wants `YYYY-MM-DD` on its date filters and ignores the time. */

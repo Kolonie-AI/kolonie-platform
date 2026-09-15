@@ -50,10 +50,20 @@ const notJson = (status: number): typeof fetch =>
       },
     }) as unknown as Response) as unknown as typeof fetch
 
-const throwing = (message: string): typeof fetch =>
+const throwing = (thrown: unknown): typeof fetch =>
   (async () => {
-    throw new Error(message)
+    throw thrown
   }) as unknown as typeof fetch
+
+const networkFailure = (code: string, privateDetail = '<private-host>'): Error =>
+  new TypeError('fetch failed', {
+    cause: new Error('network wrapper', {
+      cause: Object.assign(new Error(`connection failed at ${privateDetail}`), {
+        code,
+        hostname: privateDetail,
+      }),
+    }),
+  })
 
 const sentMessage = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   sid: 'SM00000000000000000000000000000001',
@@ -170,14 +180,39 @@ describe('twilioAdapter — sending', () => {
     expect(result?.outcome === 'refused' && result.reason).not.toContain('your number is')
   })
 
-  it('treats an unreachable vendor as the Colony’s problem', async () => {
-    const result = await twilioAdapter(CREDENTIALS, throwing('ECONNRESET'))?.send(
+  it('bounds a plain error without guessing at its cause', async () => {
+    const result = await twilioAdapter(
+      CREDENTIALS,
+      throwing(new Error('request failed near <private-host> with sensitive detail')),
+    )?.send(GERMAN_MOBILE, 'code')
+
+    expect(result).toEqual({
+      outcome: 'unavailable',
+      reason: 'Twilio could not be reached: request failed (cause code unavailable)',
+    })
+  })
+
+  it('keeps a nested socket code on an unreachable send', async () => {
+    const result = await twilioAdapter(CREDENTIALS, throwing(networkFailure('ETIMEDOUT')))?.send(
       GERMAN_MOBILE,
       'code',
     )
 
     expect(result?.outcome).toBe('unavailable')
-    expect(result?.outcome === 'unavailable' && result.reason).toContain('ECONNRESET')
+    expect(result?.outcome === 'unavailable' && result.reason).toContain('ETIMEDOUT')
+    expect(result?.outcome === 'unavailable' && result.reason).toContain('fetch failed')
+  })
+
+  it('does not copy a hostname from a nested send failure', async () => {
+    const result = await twilioAdapter(CREDENTIALS, throwing(networkFailure('EAI_AGAIN')))?.send(
+      GERMAN_MOBILE,
+      'code',
+    )
+
+    expect(result?.outcome).toBe('unavailable')
+    expect(result?.outcome === 'unavailable' && result.reason).toContain('EAI_AGAIN')
+    expect(result?.outcome === 'unavailable' && result.reason).not.toContain('<private-host>')
+    expect(result?.outcome === 'unavailable' && result.reason).not.toContain('connection failed at')
   })
 
   it('treats a 200 with no identifier as unavailable rather than as sent', async () => {
@@ -250,6 +285,41 @@ describe('twilioAdapter — receiving', () => {
     const result = await twilioAdapter(CREDENTIALS, fetch)?.received(new Date())
 
     expect(result).toEqual({ outcome: 'ok', messages: [] })
+  })
+
+  it('keeps a nested socket code on an unreachable receive', async () => {
+    const result = await twilioAdapter(
+      CREDENTIALS,
+      throwing(networkFailure('UND_ERR_CONNECT_TIMEOUT')),
+    )?.received(new Date())
+
+    expect(result?.outcome).toBe('unavailable')
+    expect(result?.outcome === 'unavailable' && result.reason).toContain('UND_ERR_CONNECT_TIMEOUT')
+    expect(result?.outcome === 'unavailable' && result.reason).toContain('fetch failed')
+  })
+
+  it('does not copy a hostname from a nested receive failure', async () => {
+    const result = await twilioAdapter(
+      CREDENTIALS,
+      throwing(networkFailure('ECONNRESET')),
+    )?.received(new Date())
+
+    expect(result?.outcome).toBe('unavailable')
+    expect(result?.outcome === 'unavailable' && result.reason).toContain('ECONNRESET')
+    expect(result?.outcome === 'unavailable' && result.reason).not.toContain('<private-host>')
+    expect(result?.outcome === 'unavailable' && result.reason).not.toContain('connection failed at')
+  })
+
+  it('does not invent a code for a plain fetch failure with no cause', async () => {
+    const result = await twilioAdapter(
+      CREDENTIALS,
+      throwing(new TypeError('fetch failed')),
+    )?.received(new Date())
+
+    expect(result?.outcome).toBe('unavailable')
+    expect(result?.outcome === 'unavailable' && result.reason).toBe(
+      'Twilio could not be reached: fetch failed (cause code unavailable)',
+    )
   })
 })
 

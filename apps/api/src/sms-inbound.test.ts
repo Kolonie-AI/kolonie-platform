@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentId } from '@kolonie-ai/core'
 import type { SmsMessage, SmsReceiveResult } from '@kolonie-ai/verifiers'
+import { twilioAdapter } from '@kolonie-ai/verifiers'
 import { FAKE_CITIZEN_NUMBER, FAKE_OTHER_NUMBER, fakeSmsStore } from './__fixtures__/sms.js'
 import {
   collectInboundSms,
@@ -254,5 +255,42 @@ describe('collectInboundSms', () => {
 
     expect(pass).toEqual({ outcome: 'read', read: 1, matched: 0, unavailableRun: 0 })
     expect((await challenges.latest(AGENT, 'send'))?.verifiedAt).toBeNull()
+  })
+
+  it('logs the cause code when the real adapter cannot reach the vendor', async () => {
+    const log = silentLog()
+    const thrown = new TypeError('fetch failed', {
+      cause: Object.assign(new Error('lookup EAI_AGAIN <private-host>'), {
+        code: 'EAI_AGAIN',
+        hostname: '<private-host>',
+      }),
+    })
+    const failing = (async () => {
+      throw thrown
+    }) as unknown as typeof fetch
+
+    const adapter = twilioAdapter(
+      {
+        accountSid: 'account',
+        apiKeySid: 'key',
+        apiKeySecret: 'value',
+        fromNumber: FAKE_CITIZEN_NUMBER,
+      },
+      failing,
+    )
+
+    expect(adapter).toBeDefined()
+    if (adapter === undefined) throw new Error('complete credentials did not build an adapter')
+
+    const pass = await collectInboundSms({ adapter, challenges: fakeSmsStore(), log })
+
+    expect(pass).toEqual({ outcome: 'unavailable', read: 0, matched: 0, unavailableRun: 1 })
+    const line = log.warnings()[0]
+    expect(line?.fields?.['event']).toBe('sms.inbound.unavailable')
+    expect(String(line?.fields?.['reason'])).toBe(
+      'Twilio could not be reached: fetch failed (cause: EAI_AGAIN)',
+    )
+    expect(String(line?.fields?.['reason'])).not.toContain('<private-host>')
+    expect(String(line?.fields?.['reason'])).not.toContain('lookup')
   })
 })

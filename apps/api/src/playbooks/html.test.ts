@@ -113,6 +113,27 @@ describe('the public playbook page', () => {
       expect(html).toContain('Step 2:')
     })
 
+    it('renders the promotion-time provenance snapshot on a promoted playbook', () => {
+      const html = entry(
+        aLife({
+          provenance: {
+            sourceCount: 3,
+            resultCounts: {
+              shipped: 2,
+              failed_experiment: 1,
+              abandoned: 0,
+              superseded: 0,
+            },
+          },
+        }),
+      )
+
+      expect(html).toContain('Where this came from')
+      expect(html).toContain('Drafted from 3 grounded Workplace close records')
+      expect(html).toContain('2 shipped, 1 failed_experiment')
+      expect(html).toContain('at promotion time')
+    })
+
     /**
      * The decision `#1257` made and this file exists to keep: a search engine
      * indexes what it is shown, and a superseded claim outlives its correction

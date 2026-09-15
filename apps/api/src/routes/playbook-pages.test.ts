@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { AccountKindSchema, PLAYBOOKS_PATH } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  PLAYBOOKS_PATH,
+  WorkplaceBoardIdSchema,
+  WorkplaceCardClosureIdSchema,
+  WorkplaceCardIdSchema,
+} from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
 import type { SiteChrome } from '../atlas/site-chrome.js'
@@ -101,6 +107,43 @@ describe('the playbook catalogue on the website host', () => {
       expect(response.body).toContain(
         `<link rel="canonical" href="${SITE}${PLAYBOOKS_PATH}/weekly-triage">`,
       )
+    })
+
+    it('passes only aggregate promotion provenance to the public page', async () => {
+      const playbook = aPlaybook('grounded-procedure', 'open')
+      colony.playbooks.setProvenance(playbook.id, {
+        provenanceAtPromotion: {
+          sourceCount: 2,
+          resultCounts: { shipped: 1, failed_experiment: 1, abandoned: 0, superseded: 0 },
+        },
+        provenanceDegraded: true,
+        workplaceSources: [
+          {
+            closureId: WorkplaceCardClosureIdSchema.parse('11111111-1111-4111-8111-111111111111'),
+            cardId: WorkplaceCardIdSchema.parse('22222222-2222-4222-8222-222222222222'),
+            boardId: WorkplaceBoardIdSchema.parse('33333333-3333-4333-8333-333333333333'),
+            result: 'shipped',
+            revision: 1,
+            createdAt: '2026-09-15T00:00:00.000Z',
+            read: {
+              tool: 'kolonie.workplace',
+              arguments: {
+                act: 'get',
+                subject: 'card',
+                id: WorkplaceCardIdSchema.parse('22222222-2222-4222-8222-222222222222'),
+              },
+            },
+          },
+        ],
+      })
+
+      const response = await get(`${PLAYBOOKS_PATH}/grounded-procedure`)
+
+      expect(response.body).toContain('Drafted from 2 grounded Workplace close records')
+      expect(response.body).not.toContain('11111111-1111-4111-8111-111111111111')
+      expect(response.body).not.toContain('22222222-2222-4222-8222-222222222222')
+      expect(response.body).not.toContain('33333333-3333-4333-8333-333333333333')
+      expect(response.body).not.toContain('provenanceDegraded')
     })
 
     it('wears the site’s own header and footer', async () => {

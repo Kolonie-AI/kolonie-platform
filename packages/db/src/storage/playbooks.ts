@@ -11,6 +11,9 @@ import {
   type AgentId,
   type Playbook,
   type PlaybookDraft,
+  type WorkplaceBoardId,
+  type WorkplaceCardClosureId,
+  type WorkplaceCardId,
   type PlaybookPatch,
   type PlaybookRun,
   type PlaybookRunOutcome,
@@ -19,9 +22,17 @@ import {
   type PlaybookRunEarned,
   type PlaybookRunSignal,
   type PlaybookStatus,
+  type WorkplaceCardClosureResult,
+  type WorkplacePlaybookProvenance,
+  type WorkplacePlaybookProvenanceSnapshot,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { playbookRuns, playbooks } from '../schema/playbooks.js'
+import { playbookRuns, playbooks, workplacePlaybookSources } from '../schema/playbooks.js'
+import {
+  workplaceBoardMemberships,
+  workplaceCards,
+  workplaceCardClosures,
+} from '../schema/workplace.js'
 import { dropObsoletePlaybookStepClaims } from './playbook-briefing.js'
 import { isUniqueViolation } from './errors.js'
 import { insertPlaybookRevision } from './playbook-revisions.js'
@@ -236,6 +247,143 @@ export async function draftPlaybook(
       draft: input.draft,
     })
     return { outcome: 'written', playbook }
+  } catch (error) {
+    if (isUniqueViolation(error)) return { outcome: 'slug-taken' }
+    throw error
+  }
+}
+
+export type WorkplacePlaybookPromotionOutcome =
+  | {
+      readonly outcome: 'written'
+      readonly playbook: Playbook
+      readonly provenance: WorkplacePlaybookProvenanceSnapshot
+    }
+  | { readonly outcome: 'slug-taken' }
+  | { readonly outcome: 'insufficient-sources' }
+  | { readonly outcome: 'forbidden-source' }
+  | { readonly outcome: 'stale-closure-revision' }
+  | { readonly outcome: 'legacy-closure' }
+  | { readonly outcome: 'no-grounded-outcome' }
+
+export interface DraftPlaybookWithWorkplaceSourcesInput {
+  readonly authorAgentId: AgentId
+  readonly slug: string
+  readonly draft: PlaybookDraft
+  readonly closureIds: readonly string[]
+}
+
+/**
+ * Promote grounded Workplace closures into an ordinary editable draft (`#1945`).
+ *
+ * All ACL and latest-revision checks run under the transaction that writes the
+ * playbook, its first revision, and its source edges. Nothing here submits or
+ * publishes; the ordinary draft lifecycle remains the only route onward.
+ */
+export async function draftPlaybookWithWorkplaceSources(
+  db: Database,
+  input: DraftPlaybookWithWorkplaceSourcesInput,
+): Promise<WorkplacePlaybookPromotionOutcome> {
+  const slug = PlaybookSlugSchema.parse(input.slug)
+  const draft = PlaybookDraftSchema.parse(input.draft)
+  const closureIds = [...new Set(input.closureIds)]
+  if (closureIds.length < 2) return { outcome: 'insufficient-sources' }
+
+  try {
+    return await db.transaction(async (tx) => {
+      const sourceRows = await tx
+        .select({ closure: workplaceCardClosures, card: workplaceCards })
+        .from(workplaceCardClosures)
+        .innerJoin(workplaceCards, eq(workplaceCards.id, workplaceCardClosures.cardId))
+        .innerJoin(
+          workplaceBoardMemberships,
+          and(
+            eq(workplaceBoardMemberships.boardId, workplaceCards.boardId),
+            eq(workplaceBoardMemberships.citizenId, input.authorAgentId),
+          ),
+        )
+        .where(inArray(workplaceCardClosures.id, closureIds))
+        .orderBy(workplaceCards.id, workplaceCardClosures.id)
+        .for('update', {
+          of: [workplaceCards, workplaceCardClosures, workplaceBoardMemberships],
+        })
+
+      if (sourceRows.length !== closureIds.length) return { outcome: 'forbidden-source' as const }
+      if (new Set(sourceRows.map((row) => row.card.id)).size < 2) {
+        return { outcome: 'insufficient-sources' as const }
+      }
+      if (sourceRows.some((row) => row.closure.legacy)) {
+        return { outcome: 'legacy-closure' as const }
+      }
+
+      const cardIds = sourceRows.map((row) => row.card.id)
+      const latestRows = await tx
+        .select({
+          cardId: workplaceCardClosures.cardId,
+          revision: sql<number>`max(${workplaceCardClosures.revision})::int`,
+        })
+        .from(workplaceCardClosures)
+        .where(inArray(workplaceCardClosures.cardId, cardIds))
+        .groupBy(workplaceCardClosures.cardId)
+      const latestByCard = new Map(latestRows.map((row) => [row.cardId, row.revision]))
+      if (sourceRows.some((row) => latestByCard.get(row.card.id) !== row.closure.revision)) {
+        return { outcome: 'stale-closure-revision' as const }
+      }
+      if (
+        !sourceRows.some(
+          (row) => row.closure.result === 'shipped' || row.closure.result === 'failed_experiment',
+        )
+      ) {
+        return { outcome: 'no-grounded-outcome' as const }
+      }
+
+      const resultCounts = {
+        shipped: 0,
+        failed_experiment: 0,
+        abandoned: 0,
+        superseded: 0,
+      }
+      for (const source of sourceRows) {
+        const result = source.closure.result as WorkplaceCardClosureResult
+        resultCounts[result] += 1
+      }
+      const provenance: WorkplacePlaybookProvenanceSnapshot = {
+        sourceCount: sourceRows.length,
+        resultCounts,
+      }
+
+      const [row] = await tx
+        .insert(playbooks)
+        .values({
+          slug,
+          title: draft.title,
+          summary: draft.summary,
+          status: 'draft',
+          authorAgentId: input.authorAgentId,
+          parentPlaybookId: null,
+          requiredAccounts: draft.requiredAccounts,
+          steps: draft.steps,
+          inspiration: draft.inspiration ?? [],
+          provenanceSnapshot: provenance,
+        })
+        .returning()
+      if (row === undefined) throw new Error('playbook insert returned no row')
+
+      await insertPlaybookRevision(tx, {
+        playbookId: row.id,
+        revision: row.version,
+        steps: row.steps,
+        cutAt: row.createdAt,
+      })
+      await tx.insert(workplacePlaybookSources).values(
+        sourceRows.map((source) => ({
+          playbookId: row.id,
+          closureId: source.closure.id,
+        })),
+      )
+
+      return { outcome: 'written' as const, playbook: toPlaybook(row), provenance }
+    })
   } catch (error) {
     if (isUniqueViolation(error)) return { outcome: 'slug-taken' }
     throw error
@@ -759,6 +907,82 @@ export async function playbookRunFor(
 export async function playbookById(db: Database, id: string): Promise<Playbook | null> {
   const [row] = await db.select().from(playbooks).where(eq(playbooks.id, id)).limit(1)
   return row ? toPlaybook(row) : null
+}
+
+/**
+ * Typed provenance of one promoted playbook, permission-filtered (`#1945`).
+ *
+ * `callerId === null` is the anonymous read: the snapshot only, with no source
+ * list. An authenticated reader gets the sources whose cards it can still read
+ * by current board membership; a source it cannot see simply drops out of the
+ * list, and `provenanceDegraded` — recomputed against the surviving edges —
+ * says an edge has gone without naming it.
+ */
+export async function playbookWorkplaceProvenance(
+  db: Database,
+  playbookId: string,
+  callerId: AgentId | null,
+): Promise<WorkplacePlaybookProvenance | null> {
+  const [row] = await db
+    .select({
+      snapshot: playbooks.provenanceSnapshot,
+      degraded: playbooks.provenanceDegraded,
+    })
+    .from(playbooks)
+    .where(eq(playbooks.id, playbookId))
+    .limit(1)
+  if (row === undefined || row.snapshot === null) return null
+
+  const snapshot = row.snapshot as WorkplacePlaybookProvenanceSnapshot
+  if (callerId === null) {
+    return { provenanceAtPromotion: snapshot, provenanceDegraded: false, workplaceSources: null }
+  }
+
+  const sourceRows = await db
+    .select({
+      closureId: workplaceCardClosures.id,
+      cardId: workplaceCards.id,
+      boardId: workplaceCards.boardId,
+      result: workplaceCardClosures.result,
+      revision: workplaceCardClosures.revision,
+      createdAt: workplacePlaybookSources.createdAt,
+    })
+    .from(workplacePlaybookSources)
+    .innerJoin(
+      workplaceCardClosures,
+      eq(workplaceCardClosures.id, workplacePlaybookSources.closureId),
+    )
+    .innerJoin(workplaceCards, eq(workplaceCards.id, workplaceCardClosures.cardId))
+    .innerJoin(
+      workplaceBoardMemberships,
+      and(
+        eq(workplaceBoardMemberships.boardId, workplaceCards.boardId),
+        eq(workplaceBoardMemberships.citizenId, callerId),
+      ),
+    )
+    .where(eq(workplacePlaybookSources.playbookId, playbookId))
+    .orderBy(asc(workplacePlaybookSources.createdAt))
+
+  return {
+    provenanceAtPromotion: snapshot,
+    provenanceDegraded: row.degraded || sourceRows.length < snapshot.sourceCount,
+    workplaceSources: sourceRows.map((source) => ({
+      closureId: source.closureId as WorkplaceCardClosureId,
+      cardId: source.cardId as WorkplaceCardId,
+      boardId: source.boardId as WorkplaceBoardId,
+      result: source.result as WorkplaceCardClosureResult,
+      revision: source.revision,
+      createdAt: source.createdAt,
+      read: {
+        tool: 'kolonie.workplace' as const,
+        arguments: {
+          act: 'get' as const,
+          subject: 'card' as const,
+          id: source.cardId as WorkplaceCardId,
+        },
+      },
+    })),
+  }
 }
 
 /**

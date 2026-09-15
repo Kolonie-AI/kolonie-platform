@@ -1,11 +1,13 @@
 import { sql } from 'drizzle-orm'
 import {
+  boolean,
   check,
   date,
   index,
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -26,8 +28,10 @@ import {
   type PlaybookInspiration,
   type PlaybookRequiredAccount,
   type PlaybookStep,
+  type WorkplacePlaybookProvenanceSnapshot,
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
+import { workplaceCardClosures } from './workplace.js'
 
 /**
  * The vocabularies, taken from `core` so the tables cannot disagree with it —
@@ -145,6 +149,17 @@ export const playbooks = pgTable(
       .$type<readonly PlaybookInspiration[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+
+    /**
+     * Promotion-time aggregate provenance (`#1945`).
+     *
+     * A snapshot rather than a live count: erasing a private source must not
+     * decrement a public number and thereby reveal whose source disappeared.
+     * Individual source edges live in `workplace_playbook_sources` and are
+     * visible only to an authenticated reader that can still read each card.
+     */
+    provenanceSnapshot: jsonb('provenance_snapshot').$type<WorkplacePlaybookProvenanceSnapshot>(),
+    provenanceDegraded: boolean('provenance_degraded').notNull().default(false),
 
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
@@ -639,5 +654,33 @@ export const playbookRuns = pgTable(
       'playbook_runs_revision_is_positive',
       sql`${table.playbookRevision} is null or ${table.playbookRevision} >= 1`,
     ),
+  ],
+)
+
+/**
+ * Typed provenance from a promoted playbook draft to the closure records that
+ * grounded it (`#1945`).
+ *
+ * **No copied board or author id.** Both are resolved through the closure and
+ * card at read time so ACL changes and erasure cannot leave a redundant
+ * identifying copy behind. The public count is the immutable snapshot on the
+ * playbook row; these edges are for authenticated, permission-filtered reads.
+ */
+export const workplacePlaybookSources = pgTable(
+  'workplace_playbook_sources',
+  {
+    playbookId: uuid('playbook_id')
+      .notNull()
+      .references(() => playbooks.id, { onDelete: 'cascade' }),
+    closureId: uuid('closure_id')
+      .notNull()
+      .references(() => workplaceCardClosures.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.playbookId, table.closureId] }),
+    index('workplace_playbook_sources_closure_idx').on(table.closureId),
   ],
 )

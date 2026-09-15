@@ -2317,4 +2317,149 @@ describe('workplace cards (#1760)', () => {
       expect(invalidCursor.json()).toMatchObject({ code: 'validation_failed' })
     })
   })
+
+  describe('workplace playbook promotions (#1945)', () => {
+    const PROMOTIONS = '/v1/workplace/playbook-promotions'
+
+    const validDraft = {
+      slug: 'grounded-deploy-guide',
+      title: 'Tested Deployment Guide',
+      summary: 'A procedure grounded in real Workplace executions.',
+      requiredAccounts: [],
+      steps: [{ title: 'Check health' }, { title: 'Deploy service' }],
+      inspiration: [],
+    }
+
+    const makeCardAndClose = async (
+      apiKey: string,
+      agentId: AgentId,
+      boardId: WorkplaceBoard['id'],
+      title: string,
+      result: 'shipped' | 'failed_experiment' | 'abandoned',
+      legacy = false,
+    ) => {
+      const card = aCard(boardId, { status: 'in_progress', ownerId: agentId, title })
+      colony.cards.plantCard(card)
+      let evidenceLinkIds: string[] = []
+      if (result === 'shipped' && !legacy) {
+        const posted = await asKey('POST', `${CARDS}/${card.id}/links`, apiKey, {
+          payload: { kind: 'url', ref: 'https://example.com/result' },
+        })
+        expect(posted.statusCode).toBe(201)
+        evidenceLinkIds = [(posted.json() as { id: string }).id]
+      }
+      const done = await asKey('POST', `${CARDS}/${card.id}/complete`, apiKey, {
+        payload: legacy
+          ? { outcome: `Legacy outcome for ${title}` }
+          : {
+              result,
+              summary:
+                result === 'failed_experiment'
+                  ? 'Tried the public endpoint and observed a 403 error.'
+                  : `Completed ${title}`,
+              learned: 'Documented lesson.',
+              evidenceLinkIds,
+              next: { kind: 'none' },
+            },
+        headers: { 'if-match': String(card.version) },
+      })
+      expect(done.statusCode).toBe(200)
+      return (done.json() as { card: WorkplaceCard; closure: { id: string } }).closure.id
+    }
+
+    it('promotes two distinct grounded closures into a draft and returns next operations', async () => {
+      const { apiKey, agent } = await aCitizen('promoter')
+      const board1 = aBoard(agent.id)
+      const board2 = aBoard(agent.id, { title: 'Second Board' })
+      colony.boards.plant(board1, [seat(board1, agent.id)])
+      colony.boards.plant(board2, [seat(board2, agent.id)])
+      colony.cards.plantBoard(board1.id, [seat(board1, agent.id)])
+      colony.cards.plantBoard(board2.id, [seat(board2, agent.id)])
+
+      const c1 = await makeCardAndClose(apiKey, agent.id, board1.id, 'Task 1', 'shipped')
+      const c2 = await makeCardAndClose(apiKey, agent.id, board2.id, 'Task 2', 'failed_experiment')
+
+      const response = await asKey('POST', PROMOTIONS, apiKey, {
+        payload: {
+          closureIds: [c1, c2],
+          playbook: validDraft,
+        },
+      })
+      expect(response.statusCode).toBe(201)
+      const body = response.json() as {
+        playbook: { slug: string; status: string }
+        provenance: {
+          sourceCount: number
+          resultCounts: { shipped: number; failed_experiment: number }
+        }
+        next: { read: string; update: string; submit: string }
+      }
+      expect(body.playbook.slug).toBe('grounded-deploy-guide')
+      expect(body.playbook.status).toBe('draft')
+      expect(body.provenance.sourceCount).toBe(2)
+      expect(body.provenance.resultCounts.shipped).toBe(1)
+      expect(body.provenance.resultCounts.failed_experiment).toBe(1)
+      expect(body.next).toEqual({
+        read: '/v1/playbooks/grounded-deploy-guide',
+        update: '/v1/playbooks/grounded-deploy-guide',
+        submit: '/v1/playbooks/grounded-deploy-guide/submit',
+      })
+    })
+
+    it('refuses legacy completions and validation errors', async () => {
+      const { apiKey, agent } = await aCitizen('legacy-promoter')
+      const board = aBoard(agent.id)
+      colony.boards.plant(board, [seat(board, agent.id)])
+      colony.cards.plantBoard(board.id, [seat(board, agent.id)])
+
+      const c1 = await makeCardAndClose(apiKey, agent.id, board.id, 'Task 1', 'shipped', true)
+      const c2 = await makeCardAndClose(apiKey, agent.id, board.id, 'Task 2', 'shipped')
+
+      const legacyRes = await asKey('POST', PROMOTIONS, apiKey, {
+        payload: {
+          closureIds: [c1, c2],
+          playbook: validDraft,
+        },
+      })
+      expect(legacyRes.statusCode).toBe(ERROR_STATUS.validation_failed)
+      expect(legacyRes.json()).toMatchObject({ code: 'validation_failed' })
+
+      const singleRes = await asKey('POST', PROMOTIONS, apiKey, {
+        payload: {
+          closureIds: [c2],
+          playbook: validDraft,
+        },
+      })
+      expect(singleRes.statusCode).toBe(ERROR_STATUS.validation_failed)
+    })
+
+    it('refuses closures on boards hidden from the caller', async () => {
+      const { apiKey, agent } = await aCitizen('own-agent')
+      const { apiKey: strangerKey, agent: strangerAgent } = await aCitizen('stranger-agent')
+      const ownBoard = aBoard(agent.id)
+      const strangerBoard = aBoard(strangerAgent.id)
+      colony.boards.plant(ownBoard, [seat(ownBoard, agent.id)])
+      colony.boards.plant(strangerBoard, [seat(strangerBoard, strangerAgent.id)])
+      colony.cards.plantBoard(ownBoard.id, [seat(ownBoard, agent.id)])
+      colony.cards.plantBoard(strangerBoard.id, [seat(strangerBoard, strangerAgent.id)])
+
+      const c1 = await makeCardAndClose(apiKey, agent.id, ownBoard.id, 'Own Task', 'shipped')
+      const c2 = await makeCardAndClose(
+        strangerKey,
+        strangerAgent.id,
+        strangerBoard.id,
+        'Stranger Task',
+        'shipped',
+      )
+
+      const response = await asKey('POST', PROMOTIONS, apiKey, {
+        payload: {
+          closureIds: [c1, c2],
+          playbook: validDraft,
+        },
+      })
+      expect(response.statusCode).toBe(ERROR_STATUS.forbidden)
+      expect(response.json()).toMatchObject({ code: 'forbidden' })
+    })
+  })
 })

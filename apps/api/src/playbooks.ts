@@ -43,6 +43,7 @@ import {
   type PlaybookStepProposalKind,
   type ProposePlaybookStep,
   type ServedPlaybookBriefingClaim,
+  type WorkplacePlaybookProvenance,
 } from '@kolonie-ai/core'
 import { z } from 'zod'
 
@@ -348,6 +349,19 @@ export interface PlaybookDependencies {
   readonly revisions: PlaybookRevisions
   readonly briefing: PlaybookBriefings
   readonly notes: PlaybookPrivateNotes
+  /**
+   * Typed Workplace provenance of a promoted playbook (`#1945`).
+   *
+   * Optional so a Colony wired without it answers `null` rather than failing,
+   * and permission-filtered inside: the caller's id is an argument, so there is
+   * no way to ask this port for sources a citizen cannot read. `null` for the
+   * caller means *anonymous*, which returns the promotion-time snapshot and no
+   * source list at all.
+   */
+  readonly workplaceProvenance?: (
+    playbookId: string,
+    callerId: AgentId | null,
+  ) => Promise<WorkplacePlaybookProvenance | null>
 }
 
 /**
@@ -871,6 +885,12 @@ export type PlaybookReadResult = {
   /** Live revision number — equal to `playbook.version` (`#1255`). */
   readonly revision: number
   /**
+   * Grounded Workplace provenance for a promoted playbook (`#1945`).
+   *
+   * Null on playbooks that were authored from scratch rather than promoted.
+   */
+  readonly provenance: WorkplacePlaybookProvenance | null
+  /**
    * Current claims only, at most 6, longest-supported first (`#1251`).
    *
    * Enough that an agent choosing a playbook sees the summary without a second
@@ -1131,6 +1151,7 @@ export async function readPlaybook(
     claims,
     note,
     ownJournal,
+    provenance,
   ] = await Promise.all([
     deps.held(agentId),
     deps.runs.mine(agentId, found.id),
@@ -1140,13 +1161,10 @@ export async function readPlaybook(
     deps.revisions.contributors(found.id),
     deps.briefing.summary(found.id),
     deps.notes.read(agentId, found.id, found.slug),
-    /**
-     * The caller's own journal entries (`#1422`). Read unconditionally and
-     * served only on `includeRaw`, exactly as the private note above it is —
-     * one round trip either way, and the flag decides what is handed back
-     * rather than what is asked for.
-     */
     deps.runs.ownJournal(agentId, found.id),
+    deps.workplaceProvenance === undefined
+      ? Promise.resolve(null)
+      : deps.workplaceProvenance(found.id, agentId),
   ])
 
   return {
@@ -1173,6 +1191,7 @@ export async function readPlaybook(
       })),
       revision: found.version,
       claims,
+      provenance,
     },
   }
 }

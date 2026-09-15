@@ -1245,6 +1245,8 @@ describe('schema', () => {
         'workplace_labels',
         /** Aggregate ordinary-card outcomes; no citizen, work identifier or prose (`#1944`). */
         'workplace_outcome_events',
+        /** Grounded Workplace card closures cited by a promoted playbook draft (`#1945`). */
+        'workplace_playbook_sources',
         /** Aggregate practicum event slugs and instants; no citizen or prose (`#1836`). */
         'workplace_practicum_events',
         'workplace_recurrence_occurrences',

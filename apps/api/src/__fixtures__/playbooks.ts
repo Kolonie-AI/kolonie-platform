@@ -18,6 +18,7 @@ import {
   type PlaybookStatus,
   type PlaybookStepProposal,
   type ServedPlaybookBriefingClaim,
+  type WorkplacePlaybookProvenance,
 } from '@kolonie-ai/core'
 import type { PlaybookDependencies, PlaybookPublishedNote } from '../playbooks.js'
 
@@ -64,6 +65,11 @@ export interface FakePlaybooks extends PlaybookDependencies {
       readonly contributions: number
       readonly isCreator: boolean
     }[],
+  ) => void
+  /** Seed the Workplace provenance of a promoted playbook (`#1945`). */
+  readonly setProvenance: (
+    playbookId: string,
+    provenance: WorkplacePlaybookProvenance | null,
   ) => void
 }
 
@@ -118,6 +124,7 @@ export function fakePlaybooks(): FakePlaybooks {
       readonly isCreator: boolean
     }[]
   >()
+  const provenance = new Map<string, WorkplacePlaybookProvenance>()
   /**
    * Private notes, keyed the way the primary key is (`#1248`).
    *
@@ -142,6 +149,11 @@ export function fakePlaybooks(): FakePlaybooks {
 
     setContributors(playbookId, contributors) {
       contributed.set(playbookId, contributors)
+    },
+
+    setProvenance(playbookId, seeded) {
+      if (seeded === null) provenance.delete(playbookId)
+      else provenance.set(playbookId, seeded)
     },
 
     playbook(playbook) {
@@ -652,6 +664,19 @@ export function fakePlaybooks(): FakePlaybooks {
         catalogue.push(written)
         return { outcome: 'written', playbook: written }
       },
+    },
+
+    async workplaceProvenance(playbookId, callerId) {
+      const seeded = provenance.get(playbookId)
+      if (seeded === undefined) return null
+      if (callerId === null) {
+        return {
+          provenanceAtPromotion: seeded.provenanceAtPromotion,
+          provenanceDegraded: false,
+          workplaceSources: null,
+        }
+      }
+      return seeded
     },
   }
 }

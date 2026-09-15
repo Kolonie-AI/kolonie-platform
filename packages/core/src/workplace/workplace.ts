@@ -749,6 +749,7 @@ export const WORKPLACE_ACTS = [
   'advance',
   'end',
   'recall',
+  'promote',
 ] as const
 export const WorkplaceActSchema = z.enum(WORKPLACE_ACTS)
 export type WorkplaceAct = z.infer<typeof WorkplaceActSchema>

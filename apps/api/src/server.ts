@@ -164,6 +164,7 @@ import {
   forkPlaybook,
   playbookById,
   playbookBySlug,
+  playbookWorkplaceProvenance,
   playbookRunActivity,
   insertPlaybookStepProposal,
   countOpenPlaybookStepProposals,
@@ -1468,6 +1469,8 @@ const app = buildApp({
       write: (agentId, playbookId, slug, note) =>
         writePlaybookNote(db, agentId, playbookId, slug, note),
     },
+    workplaceProvenance: (playbookId, callerId) =>
+      playbookWorkplaceProvenance(db, playbookId, callerId),
   },
   quests: databaseQuests(
     db,

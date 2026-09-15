@@ -20,6 +20,7 @@ import {
   WorkplaceListCardsQuerySchema,
   WorkplaceMemberSchema,
   WorkplaceMoveCardRequestSchema,
+  WorkplacePlaybookPromotionRequestSchema,
   WorkplaceRenameBoardRequestSchema,
   WorkplaceRecallRequestSchema,
   WorkplaceRecallResponseSchema,
@@ -888,6 +889,74 @@ export function registerWorkplaceRoutes(v1: FastifyInstance, deps: RouteDependen
           nextCursor: recalled.nextCursor,
         }),
       )
+  })
+
+  v1.post('/workplace/playbook-promotions', async (request, reply) => {
+    const actor = await citizenFor(request, reply)
+    if (actor === undefined) return
+    const parsed = WorkplacePlaybookPromotionRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.validation_failed)
+        .send({
+          code: 'validation_failed',
+          message: 'Promotion takes closureIds and the playbook draft fields.',
+          details: fieldErrors(parsed.error),
+        })
+    }
+    const { slug, ...draft } = parsed.data.playbook
+    const promoted = await cards.promoteToPlaybook({
+      callerId: actor.citizenId,
+      slug,
+      draft,
+      closureIds: parsed.data.closureIds,
+    })
+    if (promoted.outcome === 'slug-taken') {
+      return finish(reply, actor.origin)
+        .status(ERROR_STATUS.conflict)
+        .send({ code: 'conflict', message: 'Another playbook already answers to that slug.' })
+    }
+    if (promoted.outcome === 'forbidden-source') {
+      return finish(reply, actor.origin).status(ERROR_STATUS.forbidden).send({
+        code: 'forbidden',
+        message: 'Every source closure must currently be visible to you.',
+      })
+    }
+    if (promoted.outcome === 'insufficient-sources') {
+      return finish(reply, actor.origin).status(ERROR_STATUS.validation_failed).send({
+        code: 'validation_failed',
+        message: 'Promotion requires at least two distinct closures from two distinct cards.',
+      })
+    }
+    if (promoted.outcome === 'stale-closure-revision') {
+      return finish(reply, actor.origin).status(ERROR_STATUS.conflict).send({
+        code: 'conflict',
+        message: 'Every source closure must be the latest revision of its card.',
+      })
+    }
+    if (promoted.outcome === 'legacy-closure') {
+      return finish(reply, actor.origin).status(ERROR_STATUS.validation_failed).send({
+        code: 'validation_failed',
+        message: 'Legacy completion records cannot be promoted into a playbook.',
+      })
+    }
+    if (promoted.outcome === 'no-grounded-outcome') {
+      return finish(reply, actor.origin).status(ERROR_STATUS.validation_failed).send({
+        code: 'validation_failed',
+        message: 'At least one source closure must be shipped or failed_experiment.',
+      })
+    }
+    return finish(reply, actor.origin)
+      .status(201)
+      .send({
+        playbook: promoted.playbook,
+        provenance: promoted.provenance,
+        next: {
+          read: `/v1/playbooks/${promoted.playbook.slug}`,
+          update: `/v1/playbooks/${promoted.playbook.slug}`,
+          submit: `/v1/playbooks/${promoted.playbook.slug}/submit`,
+        },
+      })
   })
 
   v1.get('/workplace/cards/:cardId', async (request, reply) => {

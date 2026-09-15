@@ -30,7 +30,9 @@ import {
   type WorkplaceLinkCounts,
   type WorkplaceLinkKind,
   type WorkplaceMembership,
+  type WorkplacePlaybookProvenanceSnapshot,
   type WorkplaceResolvedLink,
+  type Playbook,
 } from '@kolonie-ai/core'
 import type { WorkplaceCards } from '../workplace-cards.js'
 import type { WorkplaceBoards } from '../workplace-boards.js'
@@ -1126,6 +1128,64 @@ export function fakeWorkplaceCards(boards?: WorkplaceBoards): FakeWorkplaceCards
       }
       closures.set(card.id, [closure, ...previous])
       return { outcome: 'created', card, closure }
+    },
+
+    promoteToPlaybook: async (input) => {
+      const closureIds = [...new Set(input.closureIds)]
+      if (closureIds.length < 2) return { outcome: 'insufficient-sources' as const }
+      const matching: WorkplaceCardClosure[] = []
+      for (const list of closures.values()) {
+        for (const closure of list) {
+          if (closureIds.includes(closure.id)) matching.push(closure)
+        }
+      }
+      if (matching.length !== closureIds.length) return { outcome: 'forbidden-source' as const }
+      if (matching.some((closure) => membershipOf(input.callerId, closure.boardId) === undefined)) {
+        return { outcome: 'forbidden-source' as const }
+      }
+      if (new Set(matching.map((closure) => closure.cardId)).size < 2) {
+        return { outcome: 'insufficient-sources' as const }
+      }
+      if (matching.some((closure) => closure.legacy)) return { outcome: 'legacy-closure' as const }
+      for (const closure of matching) {
+        const latest = Math.max(...(closures.get(closure.cardId) ?? []).map((one) => one.revision))
+        if (closure.revision !== latest) return { outcome: 'stale-closure-revision' as const }
+      }
+      if (
+        !matching.some(
+          (closure) => closure.result === 'shipped' || closure.result === 'failed_experiment',
+        )
+      ) {
+        return { outcome: 'no-grounded-outcome' as const }
+      }
+      const resultCounts = { shipped: 0, failed_experiment: 0, abandoned: 0, superseded: 0 }
+      for (const closure of matching) resultCounts[closure.result] += 1
+      const provenance: WorkplacePlaybookProvenanceSnapshot = {
+        sourceCount: matching.length,
+        resultCounts,
+      }
+      const now = new Date().toISOString()
+      const playbook: Playbook = {
+        id: randomUUID(),
+        slug: input.slug,
+        title: input.draft.title,
+        summary: input.draft.summary,
+        status: 'draft',
+        authorAgentId: input.callerId,
+        parentPlaybookId: null,
+        version: 1,
+        requiredAccounts: [...(input.draft.requiredAccounts ?? [])],
+        steps: [...input.draft.steps],
+        inspiration: [...(input.draft.inspiration ?? [])],
+        refusalReason: null,
+        statusReason: null,
+        statusChangedAt: null,
+        statusChangedBy: null,
+        createdAt: now,
+        updatedAt: now,
+        publishedAt: null,
+      }
+      return { outcome: 'written' as const, playbook, provenance }
     },
 
     handover: async (input) => {

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   RegisterAgentRequestSchema,
@@ -452,6 +453,106 @@ describe('the account register', () => {
       expect(await setAccountProvider(db, otherId, mine.id, 'mail.tm')).toMatchObject({
         outcome: 'not_found',
       })
+    })
+
+    /**
+     * **A value the domain shape refuses must never reach the column** (`#1997`).
+     *
+     * One stored address-shaped provider threw a `ZodError` out of catalogue
+     * synthesis and took every Atlas-backed surface down with it, for providers
+     * that had nothing wrong with them. The read path degrades now, and this is
+     * the other half: the register refuses the write rather than storing
+     * something no reader can parse.
+     */
+    it('refuses an address-shaped provider at declaration and leaves nothing stored', async () => {
+      const declared = await declareAccount(db, agentId, {
+        kind: kind('mailbox'),
+        identifier: 'agent@refused-provider.test',
+        provider: 'someone@example.org',
+      })
+
+      expect(declared).toMatchObject({ outcome: 'invalid_provider' })
+      expect(await listAccounts(db, agentId)).toEqual([])
+    })
+
+    it('refuses an address-shaped provider after the fact and leaves the row as it was', async () => {
+      const declared = await declareAccount(db, agentId, {
+        kind: kind('mailbox'),
+        identifier: 'agent@keeps-its-provider.test',
+        provider: 'mail.tm',
+      })
+      if (declared.outcome !== 'declared') throw new Error(declared.outcome)
+
+      expect(
+        await setAccountProvider(db, agentId, declared.account.id, 'someone@example.org'),
+      ).toMatchObject({ outcome: 'invalid_provider' })
+
+      const [held] = await listAccounts(db, agentId)
+      expect(held?.provider).toBe('mail.tm')
+    })
+
+    /**
+     * **The storage refusals above are one of two doors, and this is the other**
+     * (`#1997`). The register refuses a malformed provider, and so does the
+     * column — which is what answers a migration, an admin script or a writer
+     * added later that does not go through `declareAccount`. The row that took
+     * the Atlas down in production had got past application code.
+     *
+     * **Read off `constraint_name` down the cause chain, not out of the
+     * message**, for the reason `account-proofs.test.ts` gives where this helper
+     * was first written: Drizzle wraps the driver's error in its own *"Failed
+     * query: …"*, so asserting on the message would pass against a database
+     * carrying none of these rules.
+     */
+    const refusedBy = async (provider: string): Promise<string | undefined> => {
+      try {
+        await db.execute(sql`
+          insert into accounts (agent_id, kind, identifier, provider, proved, created_at, status, for_work)
+          values (${agentId}, ${kind('mailbox')}, 'past-the-register@example.test', ${provider},
+                  false, now(), 'in-use', true)
+        `)
+      } catch (error: unknown) {
+        for (let current: unknown = error; current != null;) {
+          if (typeof current === 'object' && 'constraint_name' in current) {
+            return (current as { constraint_name?: string }).constraint_name
+          }
+          current =
+            typeof current === 'object' && current !== null && 'cause' in current
+              ? (current as { cause?: unknown }).cause
+              : null
+        }
+
+        return 'refused by something that named no constraint'
+      }
+
+      return undefined
+    }
+
+    it('refuses an address-shaped provider at the column, past the register', async () => {
+      expect(await refusedBy('someone@example.org')).toBe('accounts_provider_is_a_token')
+    })
+
+    it('refuses a provider that starts with punctuation or holds a space', async () => {
+      expect(await refusedBy('-leading-dash.test')).toBe('accounts_provider_is_a_token')
+      expect(await refusedBy('two words')).toBe('accounts_provider_is_a_token')
+    })
+
+    /**
+     * **The constraint is NULL-tolerant, and the count says why it had to be.**
+     * Most rows name no provider — it is optional on every kind — so a
+     * constraint refusing NULL would have failed the migration outright against
+     * production data rather than catching anything.
+     */
+    it('leaves a row naming no provider alone', async () => {
+      expect(await refusedBy('mail.tm')).toBeUndefined()
+
+      await expect(
+        db.execute(sql`
+          insert into accounts (agent_id, kind, identifier, provider, proved, created_at, status, for_work)
+          values (${agentId}, ${kind('mailbox')}, 'no-provider@example.test', null,
+                  false, now(), 'in-use', true)
+        `),
+      ).resolves.toBeDefined()
     })
 
     /**

@@ -799,6 +799,10 @@ export function registerConsoleAgentAccounts(
 
     if (declared.outcome === 'identifier_taken') return await said('handover-taken')
     if (declared.outcome === 'too_many') return await said('handover-full')
+    // A provider that is not one token (`#1997`). Incomplete rather than a
+    // shelf of its own: the form's own field was wrong, which is what that
+    // notice already says about this form.
+    if (declared.outcome === 'invalid_provider') return await said('handover-incomplete')
 
     const accountId = declared.account.id
     const thread = await store.thread(accountId)
@@ -1202,6 +1206,8 @@ export function registerConsoleAgentAccounts(
 
     if (declared.outcome === 'identifier_taken') return await said('start-taken')
     if (declared.outcome === 'too_many') return await said('start-full')
+    // As on the handover above (`#1997`).
+    if (declared.outcome === 'invalid_provider') return await said('start-incomplete')
 
     const accountId = declared.account.id
     const thread = await store.thread(accountId)

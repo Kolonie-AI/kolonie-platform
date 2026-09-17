@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { AccountProviderSchema } from '@kolonie-ai/core'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { fakeAccountThreads } from '../../__fixtures__/account-threads.js'
 import type { FakeProviderRecipes } from '../../__fixtures__/provider-recipes.js'
@@ -822,6 +823,66 @@ describe('the account conversation', () => {
 
       expect(opening.structuredContent).not.toHaveProperty('atlas')
       expect(read.structuredContent).not.toHaveProperty('atlas')
+
+      await close()
+    })
+
+    /**
+     * **A provider the domain shape refuses must not take the thread read down**
+     * (`#1997`).
+     *
+     * One stored row whose provider was an address threw out of catalogue
+     * synthesis on every surface that built the catalogue — the thread read
+     * among them, which narrows to exactly that provider. The episode the
+     * citizen needed to read its slots with answered `internal` for hours
+     * while every unrelated Atlas surface 500'd too.
+     *
+     * The wrapper mirrors what the real `figures` did before the fix:
+     * `atlasFigures` parsed its `only` argument with no error boundary, so
+     * asking about the malformed provider threw before any row was read.
+     */
+    it('still reads an episode whose account names a provider that is not a token', async () => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const accountThreads = fakeAccountThreads()
+      const recipes = colony.recipes
+      const parsing = {
+        ...recipes,
+        figures: (options?: Parameters<typeof recipes.figures>[0]) => {
+          if (options?.only !== undefined) AccountProviderSchema.parse(options.only)
+          return recipes.figures(options)
+        },
+      }
+      recipes.write({ kind: 'mailbox', provider: 'mail.example', status: 'joinable' })
+      const held = accountThreads.addAccount({
+        agentId: agent.id,
+        kind: 'mailbox',
+        provider: 'someone@example.org',
+      })
+      const { client, close } = await connectedClient(
+        { ...colony, accountThreads, recipes: parsing },
+        `Bearer ${apiKey}`,
+      )
+
+      const opening = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: {
+          op: 'open',
+          accountId: held.id,
+          kind: 'acquisition',
+          title: 'Getting you a mailbox somewhere',
+        },
+      })
+      const episodeId = (opening.structuredContent as { episode: { id: string } }).episode.id
+
+      const read = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: { op: 'read', episodeId },
+      })
+
+      expect(read.isError).not.toBe(true)
+      expect(read.structuredContent).toMatchObject({ op: 'read', account: { id: held.id } })
+      // Slot ids are the whole of what this read exists to carry.
+      expect(read.structuredContent).toHaveProperty('slots')
 
       await close()
     })

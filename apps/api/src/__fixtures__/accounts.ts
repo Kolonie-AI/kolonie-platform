@@ -3,6 +3,7 @@ import {
   ACCOUNT_MAX_ENTRIES,
   ACCOUNT_PROOF_LIFETIME_MS,
   MAX_OPEN_ACCOUNT_PROOFS,
+  AccountProviderSchema,
   now as currentTime,
   type Account,
   type AccountKind,
@@ -128,6 +129,17 @@ export function fakeAccountRegister(): FakeAccountRegister {
     },
 
     async declare(agentId, input) {
+      /**
+       * **The provider shape, mirrored because storage refuses it** (`#1997`).
+       *
+       * `declareAccount` checks this before its first query, so a fixture that
+       * accepted an address would let a route test pass while production
+       * answered `validation_failed` — the drift AGENTS.md §3 names.
+       */
+      const named =
+        input.provider == null ? undefined : AccountProviderSchema.safeParse(input.provider)
+      if (named !== undefined && !named.success) return { outcome: 'invalid_provider' }
+
       const existing = rows.find(
         (row) =>
           row.agentId === agentId &&
@@ -159,7 +171,7 @@ export function fakeAccountRegister(): FakeAccountRegister {
         ...blank(agentId, input.kind, input.identifier),
         note: input.note ?? null,
         vaultKey: input.vaultKey ?? null,
-        provider: input.provider ?? null,
+        provider: named?.data ?? null,
       }
       rows.push(row)
       return { outcome: 'declared', account: strip(row) }
@@ -235,7 +247,13 @@ export function fakeAccountRegister(): FakeAccountRegister {
     async setProvider(agentId, accountId, provider) {
       const row = own(agentId, accountId)
       if (row === undefined) return { outcome: 'not_found' }
-      row.provider = provider
+      if (provider !== null) {
+        const parsed = AccountProviderSchema.safeParse(provider)
+        if (!parsed.success) return { outcome: 'invalid_provider' }
+        row.provider = parsed.data
+      } else {
+        row.provider = null
+      }
       return { outcome: 'updated', account: strip(row) }
     },
 

@@ -563,7 +563,18 @@ export function atlasEntries(
     if (recipe.kind === kind) held[at] = recipe
   }
 
-  return [...byProvider.entries()].map(([provider, storedRows]) => {
+  return [...byProvider.entries()].flatMap(([provider, storedRows]) => {
+    /**
+     * **A stored provider that is not a token is not an Atlas entry** (`#1997`).
+     *
+     * Grouping keys come from the rows as they were written. One unparseable
+     * key used to throw here and take the rest of the grouping down with it.
+     * Dropping the group is the same answer as never having grouped it: there
+     * is no honest page for a provider no reader can name.
+     */
+    const parsedProvider = AccountProviderSchema.safeParse(provider)
+    if (!parsedProvider.success) return []
+
     const rows = storedRows.map((row) => {
       const kind = atlasCanonicalKind(row.kind)
       return kind === row.kind ? row : { ...row, kind }
@@ -594,8 +605,8 @@ export function atlasEntries(
     }))
 
     return {
-      provider: AccountProviderSchema.parse(provider),
-      path: atlasPath(provider),
+      provider: parsedProvider.data,
+      path: atlasPath(parsedProvider.data),
       title: lead.title,
       status,
       category: lead.category,
@@ -1045,6 +1056,18 @@ export function measuredOnlyRecipes(
      * entry beside this one.
      */
     if (!figure.evidenced) continue
+
+    /**
+     * **A figure whose provider is not a token synthesises nothing** (`#1997`).
+     *
+     * The type says this cannot happen and a persisted row is where types stop
+     * holding: the figures are computed from `accounts`, `provider_reports` and
+     * `account_walks`, and one `accounts` row holding an address is what took
+     * every Atlas surface down. Storage drops such a row now and this is the
+     * second boundary — `ProviderRecipeSchema.parse` below would throw on it,
+     * and a synthesised entry's whole public path is built from this value.
+     */
+    if (!AccountProviderSchema.safeParse(figure.provider).success) continue
 
     /**
      * **The pair is asked under the kind it means** (`#1144`). A figure counted

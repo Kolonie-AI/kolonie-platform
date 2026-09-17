@@ -287,6 +287,24 @@ describe('whether a provider needs an operator anywhere on it', () => {
     expect(entries[0]?.operatorNeed).toBe('unaided')
     expect(entries[0]?.operatorNeedIsGuess).toBe(false)
   })
+
+  /**
+   * **A stored provider that is not a token is dropped from entries** (`#1997`).
+   *
+   * A persisted provider holding an address previously threw a `ZodError` when
+   * `AccountProviderSchema.parse` ran on the grouping key, crashing catalogue
+   * synthesis for valid providers.
+   */
+  it('drops provider groups whose key is not a valid provider token', () => {
+    const valid = recipe({ kind: 'mailbox', provider: 'fastmail.com' })
+    const invalid = {
+      ...valid,
+      provider: 'someone@example.org' as never,
+    }
+
+    const entries = atlasEntries([valid, invalid])
+    expect(entries.map((entry) => entry.provider)).toEqual(['fastmail.com'])
+  })
 })
 
 describe('the path an entry is served at', () => {

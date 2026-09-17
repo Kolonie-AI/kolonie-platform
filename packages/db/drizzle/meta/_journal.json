@@ -2640,6 +2640,13 @@
       "when": 1789433195564,
       "tag": "0376_real_inhumans",
       "breakpoints": true
+    },
+    {
+      "idx": 377,
+      "version": "7",
+      "when": 1789631516446,
+      "tag": "0377_greedy_logan",
+      "breakpoints": true
     }
   ]
 }

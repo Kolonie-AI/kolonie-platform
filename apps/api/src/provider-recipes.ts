@@ -446,6 +446,19 @@ export async function atlasStateAt(
   kind?: string,
 ): Promise<AtlasState> {
   /**
+   * **A malformed stored value has no Atlas entry and costs no read** (`#1997`).
+   *
+   * This is reached from account pages and account-thread detail reads, where
+   * `provider` came from a row rather than from a request schema. Passing an
+   * address-shaped value through as `only` used to make `atlasFigures` throw
+   * before the episode's slots could be returned. `unwalked` is the honest
+   * degraded answer: there can be no valid catalogue entry keyed by an invalid
+   * provider token.
+   */
+  const parsed = AccountProviderSchema.safeParse(provider)
+  if (!parsed.success) return { state: 'unwalked', provider: provider.trim().toLowerCase() }
+
+  /**
    * **Narrowed, because this call has always wanted exactly one entry**
    * (`#1627`). `atlasStateOf` finds its provider and drops the rest, so the
    * catalogue around it was assembled to be thrown away — on every account page
@@ -455,8 +468,8 @@ export async function atlasStateAt(
    * this answers *what is this provider* and never *what is near it*.
    */
   return atlasStateOf(
-    await atlasCatalogue(recipes, { ordered: false, only: provider.trim().toLowerCase() }),
-    provider,
+    await atlasCatalogue(recipes, { ordered: false, only: parsed.data }),
+    parsed.data,
     kind,
   )
 }

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import type { AgentId } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
@@ -188,6 +188,38 @@ describe('the agent page', () => {
       expect(response.body, slug).toContain('<nav class="console-nav"')
       expect(response.body, slug).toContain(`href="/agents/${agentId}"`)
     }
+  })
+
+  /**
+   * **A missing path parameter must not become a query** (`#1993`).
+   *
+   * Fastify matches `GET /agents/` against `/agents/:agentId` with `agentId`
+   * the empty string. Production then handed that to `operates`, and Postgres
+   * answered `22P02 invalid input syntax for type uuid: ""` as a 500. The
+   * empty id names nobody, so it is the same 404 as an id that does not exist.
+   */
+  it('answers GET /agents/ as missing rather than querying with an empty id', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+    const operates = vi.spyOn(humans, 'operates')
+
+    const empty = await app.inject({
+      method: 'GET',
+      url: '/agents/',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    expect(empty.statusCode).toBe(404)
+    expect(operates).not.toHaveBeenCalled()
+
+    const malformed = await app.inject({
+      method: 'GET',
+      url: '/agents/not-a-uuid',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+    })
+
+    expect(malformed.statusCode).toBe(404)
+    expect(operates).not.toHaveBeenCalled()
   })
 
   /**

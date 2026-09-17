@@ -486,6 +486,16 @@ describe('the rows the figures imply', () => {
     )
   })
 
+  /** A malformed persisted grouping key is not a synthesised Atlas entry (`#1997`). */
+  it('skips an evidenced figure whose provider is not a token', () => {
+    const malformed = {
+      ...figures({ kind: 'mailbox', provider: 'mail.example', attempted: 1 }),
+      provider: 'someone@example.org' as never,
+    }
+
+    expect(measuredOnlyRecipes([], [malformed])).toEqual([])
+  })
+
   /**
    * **A kind with no shelf lands on the fallback** (`#1096`), and this test
    * asserted the opposite until then: that leaving it off was safer than filing

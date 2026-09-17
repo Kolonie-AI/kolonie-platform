@@ -4,6 +4,7 @@ import {
   ATLAS_RETENTION_DAYS,
   AccountKindSchema,
   RegisterAgentRequestSchema,
+  createLog,
   type AgentId,
 } from '@kolonie-ai/core'
 import { eq, sql } from 'drizzle-orm'
@@ -1302,6 +1303,103 @@ describe('the measured figures behind an Atlas entry', () => {
 
       expect((await at('mail.tm', 'inbound'))?.attempted).toBe(6)
       expect((await at('mail.tm'))?.attempted).toBe(6)
+    })
+  })
+
+  /**
+   * **One bad stored value must not cost the whole catalogue** (`#1997`).
+   *
+   * A single `accounts` row held an address in `provider`, and the row mapping
+   * parsed it with no error boundary — so a `ZodError` left this function and
+   * every surface that builds the Atlas answered 500, for providers such as
+   * `fly.io` and `github.com` that had nothing wrong with them.
+   *
+   * The row is inserted past the check constraint this issue also added, because
+   * the constraint is precisely what stops a *new* row like it; the read path
+   * stays resilient for the row that already arrived, for rows in the two
+   * unconstrained tables `pairs` unions, and for whatever a migration or an
+   * admin script writes next.
+   */
+  describe('a stored provider that is not a token', () => {
+    /** The constraint name, so the insert below can step over it and put it back. */
+    const CONSTRAINT = 'accounts_provider_is_a_token'
+    const CHECK_SQL = `provider is null or (provider ~ '^[a-z0-9][a-z0-9.+_-]*$' and char_length(provider) <= 128)`
+
+    const withInvalidStoredProvider = async (body: () => Promise<void>) => {
+      await db.execute(sql`alter table accounts drop constraint if exists ${sql.raw(CONSTRAINT)}`)
+      try {
+        await body()
+      } finally {
+        await db.execute(
+          sql`delete from accounts where provider is not null and provider !~ '^[a-z0-9][a-z0-9.+_-]*$'`,
+        )
+        await db.execute(
+          sql`alter table accounts add constraint ${sql.raw(CONSTRAINT)} check (${sql.raw(CHECK_SQL)})`,
+        )
+      }
+    }
+
+    const storeInvalid = async (provider: string) => {
+      const agentId = await citizen('bad-provider-holder')
+
+      await db.execute(sql`
+        insert into accounts (agent_id, kind, identifier, provider, proved, created_at, status, for_work)
+        values (${agentId}, ${kind}, 'agent@example.test', ${provider}, false, now(), 'in-use', true)
+      `)
+    }
+
+    it('returns every valid entry and drops the one that cannot be parsed', async () => {
+      await withInvalidStoredProvider(async () => {
+        for (let i = 0; i < 6; i++) await holds({ name: `held-${i}`, provider: 'mail.tm' })
+        await storeInvalid('someone@example.org')
+
+        const figures = await atlasFigures(db)
+
+        expect(figures.map((one) => one.provider)).toEqual(['mail.tm'])
+        expect(figures[0]?.attempted).toBe(6)
+      })
+    })
+
+    /**
+     * The half that stranded a credential in production: the thread read
+     * narrows to the malformed provider itself, so *this* row is the one asked
+     * about. `only` used to be parsed with no boundary either.
+     */
+    it('answers nothing for the malformed provider asked about directly', async () => {
+      await withInvalidStoredProvider(async () => {
+        await storeInvalid('someone@example.org')
+
+        expect(await atlasFigures(db, { only: 'someone@example.org' })).toEqual([])
+      })
+    })
+
+    it('says what shape was rejected without quoting it or naming anybody', async () => {
+      const warnings: string[] = []
+      const log = createLog({ service: 'test', write: (line) => warnings.push(line) })
+
+      await withInvalidStoredProvider(async () => {
+        await storeInvalid('someone@example.org')
+
+        expect(await atlasFigures(db, { log })).toEqual([])
+      })
+
+      const said = warnings.join('\n')
+      const record = JSON.parse(warnings[0] ?? '{}') as Record<string, unknown>
+
+      expect(warnings).toHaveLength(1)
+      expect(record).toMatchObject({
+        level: 'warn',
+        event: 'atlas.figures.provider_dropped',
+        table: 'accounts',
+        shape: 'address',
+      })
+      /**
+       * **The value was an address, which is a citizen identifier.** It is what
+       * this file's header promises never to select, and quoting it into every
+       * log sink the Colony has would publish exactly that.
+       */
+      expect(said).not.toContain('someone@example.org')
+      expect(said).not.toContain('agent@example.test')
     })
   })
 })

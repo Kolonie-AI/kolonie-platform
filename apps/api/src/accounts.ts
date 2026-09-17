@@ -386,6 +386,25 @@ export const AccountProviderArgumentSchema = z.object({
   provider: AccountProviderSchema.nullable(),
 })
 
+/**
+ * The one sentence every door answers with for a provider that is not one token
+ * (`#1997`).
+ *
+ * Shared because there are three doors and a citizen that met one of them must
+ * not have to learn the other two's wording: the declaration, the field write,
+ * and the register's own storage layer, which now refuses rather than throwing
+ * a `ZodError` into a console form post.
+ */
+function invalidProviderError(): ApiError {
+  return {
+    code: 'validation_failed',
+    message:
+      'A provider is one token — a hostname like "mail.tm", or a short slug. An address is not ' +
+      'one, and neither is a sentence.',
+    details: { provider: 'invalid' },
+  }
+}
+
 export type AccountsResponse = {
   readonly accounts: readonly Account[]
   /** The newest walk for each provider this citizen touched, including drafts without an account. */
@@ -649,6 +668,13 @@ export async function declareOwnAccount(
     vaultKey: parsed.data.vaultKey ?? null,
     provider: parsed.data.provider ?? null,
   })
+
+  if (result.outcome === 'invalid_provider') {
+    return {
+      outcome: 'rejected',
+      error: invalidProviderError(),
+    }
+  }
 
   if (result.outcome === 'identifier_taken') {
     return {
@@ -1254,6 +1280,10 @@ export async function setOwnAccountFields(
 }
 
 function answer(edit: AccountEdit): AccountWriteOutcome {
+  if (edit.outcome === 'invalid_provider') {
+    return { outcome: 'rejected', error: invalidProviderError() }
+  }
+
   if (edit.outcome === 'not_found') {
     return {
       outcome: 'rejected',

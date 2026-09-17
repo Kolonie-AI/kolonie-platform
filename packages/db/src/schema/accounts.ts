@@ -9,7 +9,11 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { ACCOUNT_NOTE_MAX_LENGTH, type AccountKind } from '@kolonie-ai/core'
+import {
+  ACCOUNT_NOTE_MAX_LENGTH,
+  ACCOUNT_PROVIDER_MAX_LENGTH,
+  type AccountKind,
+} from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { tasks } from './tasks.js'
 import { accountProvenance, accountStatus } from './enums.js'
@@ -491,6 +495,37 @@ export const accounts = pgTable(
     check(
       'accounts_note_length',
       sql`${table.note} is null or char_length(${table.note}) <= ${sql.raw(String(ACCOUNT_NOTE_MAX_LENGTH))}`,
+    ),
+
+    /**
+     * The provider is one token, or it is nothing at all (`#1997`).
+     *
+     * **Not an enum, and this is not the enum the column's own comment
+     * refuses.** The vocabulary stays open — any token a citizen names is
+     * accepted, including a provider the Colony has never heard of. What is
+     * enforced is only the *shape* that comment already names as the column's:
+     * `AccountProviderSchema`'s one lowercased token, restated here because a
+     * regex is the part of that schema a database can hold.
+     *
+     * **Null is untouched and stays the ordinary answer**, which the column's
+     * comment says it always will be. Every row that predates the column
+     * satisfies this, so the constraint validates against the table as it
+     * stands rather than needing a backfill.
+     *
+     * **Written as a constraint because the application layer was not enough.**
+     * One row arrived holding an address rather than a token, and every surface
+     * that builds the Atlas catalogue answered 500 — for providers with nothing
+     * wrong with them — until it was cleared by hand. The read path degrades
+     * now, so a row like it can no longer take the catalogue down; this is the
+     * other end, where such a row stops being writable at all. Storage refuses
+     * it first and says which field was wrong; this catches whatever never went
+     * through storage.
+     */
+    check(
+      'accounts_provider_is_a_token',
+      sql`${table.provider} is null
+          or (${table.provider} ~ '^[a-z0-9][a-z0-9.+_-]*$'
+              and char_length(${table.provider}) <= ${sql.raw(String(ACCOUNT_PROVIDER_MAX_LENGTH))})`,
     ),
 
     /** "What does this citizen hold?" — the read every surface makes. */

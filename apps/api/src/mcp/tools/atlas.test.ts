@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ATLAS_ANY_PROVED_PHRASE,
   ATLAS_ENTRIES_DEFAULT_PAGE,
+  AccountProviderSchema,
   noFigures,
   type AtlasEntry,
 } from '@kolonie-ai/core'
@@ -1181,5 +1182,46 @@ describe('the promotion path, said out loud', () => {
     expect(text).not.toContain('the ordered steps in your own words')
     expect(text).not.toContain('stands behind it')
     expect(text).toContain('your move')
+  })
+
+  /**
+   * **One malformed stored provider must not take the catalogue down** (`#1997`).
+   *
+   * Production: a single `accounts.provider` holding an address made
+   * `atlasFigures` throw a `ZodError`, and every Atlas-backed surface —
+   * `/atlas`, `/atlas/:provider`, `kolonie.accounts.recipes` — answered 500
+   * for providers with nothing wrong with them. The wrapper is what the real
+   * `figures` used to do: parse `only` with no error boundary. After the fix,
+   * a catalogue that includes github.com still answers for github.com.
+   */
+  it('still serves valid entries when a stored provider is not a token', async () => {
+    colony.recipes.write({ kind: 'github', provider: 'github.com', title: 'GitHub' })
+    const recipes = colony.recipes
+    const parsing = {
+      ...recipes,
+      figures: async (options?: Parameters<typeof recipes.figures>[0]) => {
+        if (options?.only !== undefined) AccountProviderSchema.parse(options.only)
+        return [
+          ...(await recipes.figures(options)),
+          {
+            ...noFigures('mailbox', 'valid-shape.example'),
+            // The cast is the point: persisted rows exist outside the domain
+            // type, and this regression is the read boundary meeting one.
+            provider: 'someone@example.org' as never,
+            evidenced: true,
+          },
+        ]
+      },
+    }
+
+    const whole = await readAtlas({}, parsing, true)
+    expect(whole.outcome).toBe('ok')
+    if (whole.outcome !== 'ok') return
+    expect(whole.response.entries.some((entry) => entry.provider === 'github.com')).toBe(true)
+
+    const one = await readAtlas({ provider: 'github.com' }, parsing, true)
+    expect(one.outcome).toBe('ok')
+    if (one.outcome !== 'ok') return
+    expect(one.response.entries.map((entry) => entry.provider)).toEqual(['github.com'])
   })
 })

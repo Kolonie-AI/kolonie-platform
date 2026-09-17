@@ -1,8 +1,10 @@
 import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm'
 import {
   ACCOUNT_MAX_ENTRIES,
+  AccountProviderSchema,
   type Account,
   type AccountCapability,
+  type AccountProvider,
   type AccountKind,
   type AccountProofMethod,
   type AccountStatus,
@@ -77,6 +79,15 @@ export type AccountDeclaration =
   /** Another citizen has *proved* it, and this kind names one citizen. */
   | { readonly outcome: 'identifier_taken' }
   | { readonly outcome: 'too_many'; readonly limit: number }
+  /**
+   * The named provider is not one token (`#1997`).
+   *
+   * Its own outcome rather than a throw, because `declareAccount` is called
+   * from console form posts and account-offer accepts as well as from the
+   * register's own routes, and a `ZodError` escaping here is a 500 on a
+   * citizen's own write rather than a sentence saying what was wrong.
+   */
+  | { readonly outcome: 'invalid_provider' }
 
 /**
  * Record an account the citizen holds, or says it holds.
@@ -104,6 +115,22 @@ export async function declareAccount(
     readonly provider?: string | null
   },
 ): Promise<AccountDeclaration> {
+  /**
+   * **At the storage door as well as the HTTP and tool doors** (`#1997`).
+   *
+   * `DeclareAccountSchema` already rejects this for the register's own public
+   * routes. Storage has more callers — console forms, proof settlement and
+   * account transfer — and one of them writing an unchecked address is enough
+   * to poison every catalogue read. Refused before the first query so a bad
+   * provider cannot be hidden behind an `already_recorded` result either.
+   */
+  let provider: AccountProvider | null = null
+  if (input.provider != null) {
+    const parsed = AccountProviderSchema.safeParse(input.provider)
+    if (!parsed.success) return { outcome: 'invalid_provider' }
+    provider = parsed.data
+  }
+
   const existing = await accountByIdentifier(db, agentId, input.kind, input.identifier)
   if (existing !== undefined) return { outcome: 'already_recorded', account: existing }
 
@@ -127,7 +154,7 @@ export async function declareAccount(
         identifier: input.identifier,
         note: input.note ?? null,
         vaultKey: input.vaultKey ?? null,
-        provider: input.provider ?? null,
+        provider,
       })
       .returning()
 
@@ -402,6 +429,12 @@ export type AccountEdit =
   | { readonly outcome: 'mail_has_no_preference' }
   /** The account is the citizen's recovery factor, which must survive its API key. */
   | { readonly outcome: 'recovery_factor_has_no_vault_key' }
+  /**
+   * The named provider is not one token (`#1997`). Same outcome as
+   * {@link declareAccount}, so a field write and a declaration refuse the same
+   * shape in the same word.
+   */
+  | { readonly outcome: 'invalid_provider' }
 
 /**
  * Set the status of one of the caller's accounts.
@@ -580,7 +613,18 @@ export async function setAccountProvider(
   accountId: string,
   provider: string | null,
 ): Promise<AccountEdit> {
-  const edit = await editOwn(db, agentId, accountId, { provider })
+  /**
+   * The same door `declareAccount` holds (`#1997`): one token or nothing, and
+   * `null` stays the ordinary clear.
+   */
+  let stored: AccountProvider | null = null
+  if (provider !== null) {
+    const parsed = AccountProviderSchema.safeParse(provider)
+    if (!parsed.success) return { outcome: 'invalid_provider' }
+    stored = parsed.data
+  }
+
+  const edit = await editOwn(db, agentId, accountId, { provider: stored })
 
   /**
    * **Naming the provider of an already-proved account puts it on the shelf**

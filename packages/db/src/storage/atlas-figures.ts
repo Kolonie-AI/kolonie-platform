@@ -15,8 +15,36 @@ import {
   WallKindSchema,
   atlasBand,
   atlasCommonestStop,
+  createLog,
+  type Log,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
+
+/**
+ * Where a dropped row is reported when the caller passed no logger.
+ *
+ * Built once rather than per call, on the rule `createLog` states: the shape is
+ * decided in one place, and a service that built one per invocation would be
+ * paying for it on a path that is silent in the ordinary case.
+ */
+const figuresLog = createLog({ service: 'db' })
+
+/**
+ * What a rejected stored provider is said to *be*, without saying what it was
+ * (`#1997`).
+ *
+ * **The value itself is never logged, and that is the whole of this function.**
+ * The row that took the catalogue down held an address, and an address is a
+ * citizen identifier — so a log line quoting it would publish, into every log
+ * sink the Colony has, exactly the thing this file's header promises never to
+ * select. What a maintainer actually needs is *which shape of wrong value*, and
+ * that is a classification rather than a quotation.
+ */
+function providerShape(value: string): 'address' | 'empty' | 'malformed-token' {
+  if (value.trim() === '') return 'empty'
+
+  return value.includes('@') ? 'address' : 'malformed-token'
+}
 
 /**
  * What the Colony measured about every recipe in the catalogue (`#545`).
@@ -114,6 +142,7 @@ export async function atlasFigures(
      * `directionAnswers(null, asked)` does.
      */
     readonly direction?: RecipeDirection
+    readonly log?: Log
   } = {},
 ): Promise<readonly AtlasFigures[]> {
   const audience = options.audience ?? 'public'
@@ -123,13 +152,33 @@ export async function atlasFigures(
    * Without this a caller could ask for the unfloored whole catalogue by passing
    * one word — the escape hatch every audience flag grows if nothing closes it.
    */
-  const entitled =
+  const parsedEntitlement =
     audience === 'provider' && options.entitledTo !== undefined
-      ? AccountProviderSchema.parse(options.entitledTo)
+      ? AccountProviderSchema.safeParse(options.entitledTo)
       : undefined
+  if (parsedEntitlement !== undefined && !parsedEntitlement.success) return []
+  const entitled = parsedEntitlement?.data
 
   const retention = sql.raw(String(ATLAS_RETENTION_DAYS))
   const entitledOnly = entitled === undefined ? sql`true` : sql`p.provider = ${entitled}`
+
+  /**
+   * **An unparseable provider names nothing and computes nothing** (`#1997`).
+   *
+   * Before this, `AccountProviderSchema.parse` ran on `options.only` with no
+   * error boundary. When an account held an address-shaped provider, reading an
+   * episode about it through `kolonie.accounts.thread` asked for that provider's
+   * figures and threw a `ZodError` — so the episode that held a credential the
+   * operator had just placed could not be read, and every slot in it was
+   * stranded.
+   *
+   * An invalid provider has zero valid figures by definition: no legitimate row
+   * exists for it, and the honest answer is the empty list without scanning the
+   * corpus to find that out.
+   */
+  const only =
+    options.only === undefined ? undefined : AccountProviderSchema.safeParse(options.only)
+  if (only !== undefined && !only.success) return []
 
   /**
    * **Which provider the CTEs are allowed to see** (`#1627`).
@@ -150,7 +199,7 @@ export async function atlasFigures(
    * it resolves against whichever table Postgres finds it in, with the wrong
    * answer arriving under no error at all.
    */
-  const computed = options.only === undefined ? entitled : AccountProviderSchema.parse(options.only)
+  const computed = only === undefined ? entitled : only.data
   const heldOnly = computed === undefined ? sql`true` : sql`accounts.provider = ${computed}`
   const reportedOnly =
     computed === undefined ? sql`true` : sql`provider_reports.provider = ${computed}`
@@ -466,7 +515,42 @@ export async function atlasFigures(
      order by p.kind, p.provider
   `)
 
-  return rows.map((row) => {
+  const log = options.log ?? figuresLog
+
+  /**
+   * **One unparseable stored value must not cost the whole catalogue** (`#1997`).
+   *
+   * `flatMap` rather than `map`, because a row whose provider the domain shape
+   * refuses is dropped here instead of throwing out of the whole synthesis. A
+   * single `accounts` row holding an address did exactly that: the `ZodError`
+   * left this function, and every surface that builds the catalogue — the Atlas
+   * pages, `kolonie.accounts.recipes`, the console account pages, an account
+   * thread read — answered 500, for providers with nothing wrong with them.
+   *
+   * **Dropped rather than degraded, and the difference is what the row would
+   * claim.** A figures row is keyed on `(kind, provider)` and every count in it
+   * is about that pair; there is no honest value to put in the key, and a row
+   * carrying a provider no reader can parse would be published into an Atlas
+   * entry whose own path is built from it.
+   *
+   * **The log names the shape and never the value**, on the privacy rule this
+   * file's header states: the value that caused this in production was an
+   * address, so quoting it would put a citizen identifier in every log sink the
+   * Colony has. No agent id is available here to leak — none is selected.
+   */
+  return rows.flatMap((row) => {
+    const provider = AccountProviderSchema.safeParse(row.provider)
+    if (!provider.success) {
+      log.warn('dropped an Atlas figures row whose stored provider is not a token', {
+        event: 'atlas.figures.provider_dropped',
+        table: 'accounts',
+        shape: providerShape(row.provider),
+        valueLength: row.provider.length,
+      })
+
+      return []
+    }
+
     const attempted = Number(row.attempted)
     /**
      * **The floor is applied here and the row is still returned**, rather than
@@ -483,7 +567,7 @@ export async function atlasFigures(
 
     return {
       kind: AccountKindSchema.parse(row.kind),
-      provider: AccountProviderSchema.parse(row.provider),
+      provider: provider.data,
       attempted: suppressed ? 0 : attempted,
       proved: suppressed ? 0 : Number(row.proved),
       medianHoursToProof: suppressed || row.median_hours === null ? null : Number(row.median_hours),

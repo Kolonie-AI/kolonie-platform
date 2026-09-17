@@ -1,4 +1,4 @@
-import { ERROR_STATUS, type AgentId, type HumanId } from '@kolonie-ai/core'
+import { AgentIdSchema, ERROR_STATUS, type AgentId, type HumanId } from '@kolonie-ai/core'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { authenticate } from '../authentication.js'
 import { CONSOLE_HEADERS, signInPage } from '../console/html.js'
@@ -45,6 +45,28 @@ import type { RouteDependencies } from './dependencies.js'
  * form.
  */
 import { consoleNotFound, html, wantsHtml } from './console-shared.js'
+
+/**
+ * The agent id named in the path, or nothing (`#1993`).
+ *
+ * **Fastify matches `GET /agents/` against `/agents/:agentId`** with `agentId`
+ * the empty string rather than declining the route, and both console doors
+ * branded that string and handed it to `operates`. Postgres answered
+ * `22P02 invalid input syntax for type uuid: ""`, which reached the caller as a
+ * 500 on a path that had simply been typed without an id.
+ *
+ * **Parsed rather than cast**, so the brand is earned by a check rather than
+ * asserted. An id that is not shaped like one names nobody, so the caller gets
+ * what it gets for an id that does not exist — the console's ordinary 404.
+ * Telling the two apart would say which ids are well-formed, and withholding
+ * exactly that is what `operatorDoor` and `operatedAgent` are built for.
+ */
+function pathAgentId(request: FastifyRequest): AgentId | undefined {
+  const { agentId } = request.params as { agentId?: string }
+  if (agentId === undefined) return undefined
+
+  return AgentIdSchema.safeParse(agentId).data
+}
 
 /**
  * What every console page closes over, built once (`#1498`).
@@ -257,11 +279,11 @@ export function consolePageContext(deps: RouteDependencies, host: string) {
 
     /**
      * **The id in the path is a claim; `operates` is what turns it into a
-     * subject.** Branded here and nowhere else, so the cast is next to the check
-     * that earns it rather than somewhere a later reader would have to trust.
+     * subject.** Parsed here and nowhere else, so the branding is next to the
+     * check that earns it rather than somewhere a later reader would have to
+     * trust.
      */
-    const { agentId } = request.params as { agentId?: string }
-    const subject = agentId === undefined ? undefined : (agentId as AgentId)
+    const subject = pathAgentId(request)
     if (subject === undefined || !(await deps.humans.store.operates(signedIn.human.id, subject))) {
       consoleNotFound(reply, request)
       return null
@@ -312,8 +334,7 @@ export function consolePageContext(deps: RouteDependencies, host: string) {
       return null
     }
 
-    const { agentId } = request.params as { agentId?: string }
-    const subject = agentId === undefined ? undefined : (agentId as AgentId)
+    const subject = pathAgentId(request)
     if (subject === undefined || !(await deps.humans.store.operates(signedIn.human.id, subject))) {
       consoleNotFound(reply, request)
       return null
